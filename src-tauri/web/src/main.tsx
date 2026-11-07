@@ -322,6 +322,7 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [refMeta, setRefMeta] = useState<Record<RefKey, RefMeta | null>>(loadRefMeta)
   const [galleryOpen, setGalleryOpen] = useState<RefKey | null>(null)
+  const [preview, setPreview] = useState<{ src: string; title: string } | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [showGuide, setShowGuide] = useState(() => {
     try {
@@ -484,6 +485,15 @@ function App() {
 
   const generateRef = useRef(generate)
   generateRef.current = generate
+
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -816,7 +826,16 @@ function App() {
                 className={`ref-row ${active === key ? 'is-active' : ''}`}
                 onClick={() => setActive(key)}
               >
-                <div className="ref-thumb">
+                <div
+                  className={`ref-thumb ${refs[key] ? 'is-clickable' : ''}`}
+                  onClick={(e) => {
+                    if (refs[key]) {
+                      e.stopPropagation()
+                      setPreview({ src: refs[key] as string, title: REF_META[key].name })
+                    }
+                  }}
+                  title={refs[key] ? '点击查看大图' : undefined}
+                >
                   {refs[key] ? <img src={refs[key] as string} alt={REF_META[key].name} /> : <Icon name="plus" size={14} />}
                 </div>
                 <div className="ref-meta">
@@ -975,6 +994,20 @@ function App() {
             setStatus({ text: `已载入${REF_META[kind].name} ${item.code} ${item.name}${view.angle && view.angle !== '参考' ? ` · ${view.angle}` : ''}`, tone: 'ok' })
           }}
         />
+      )}
+
+      {preview && (
+        <div className="overlay" onClick={() => setPreview(null)}>
+          <div className="preview-card" onClick={(e) => e.stopPropagation()}>
+            <button className="preview-close" onClick={() => setPreview(null)} title="关闭" aria-label="关闭">
+              <Icon name="x" size={18} />
+            </button>
+            <div className="preview-body">
+              <img src={preview.src} alt={preview.title} />
+            </div>
+            <div className="preview-title">{preview.title}</div>
+          </div>
+        </div>
       )}
 
       {showGuide && (
