@@ -1,0 +1,23 @@
+{
+  "name": "ziran",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite web --port 43123 --strictPort",
+    "build": "vite build web",
+    "preview": "vite preview web"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.14",
+    "@types/react-dom": "^18.2.6",
+    "@vitejs/plugin-react": "^4.0.1",
+    "vite": "^5.0.0"
+  }
+}
