@@ -132,6 +132,11 @@ jobs:
         run: npm ci
         working-directory: src-tauri
 
+      # 缓存按前缀继承上一棵 target 树，里面带着上个版本构建出来的
+      # 安装包；不清掉，下面的 find 会把旧版本产物一起传上 release。
+      - name: Remove stale bundles from restored cache
+        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle
+
       - name: Build app
         run: npx tauri build --target ${{ matrix.target }}
         working-directory: src-tauri
@@ -200,6 +205,10 @@ jobs:
       - name: Install app deps
         run: npm ci
         working-directory: src-tauri
+
+      # 同上：target 树来自缓存，可能带着上个版本的安装包。
+      - name: Remove stale bundles from restored cache
+        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle
 
       - name: Build app
         run: npx tauri build --target x86_64-pc-windows-msvc
