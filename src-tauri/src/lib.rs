@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
@@ -48,6 +48,11 @@ fn db_open(app: &tauri::AppHandle) -> Result<Connection, String> {
   conn
     .pragma_update(None, "journal_mode", "WAL")
     .map_err(|e| e.to_string())?;
+  // 并发写入（可见缩略图 + 后台预取同时落库）默认会立刻报
+  // database is locked；给个等待窗口让写锁排队而不是失败。
+  conn
+    .busy_timeout(Duration::from_secs(5))
+    .map_err(|e| e.to_string())?;
   conn
     .execute_batch(
       "CREATE TABLE IF NOT EXISTS images (
@@ -63,8 +68,58 @@ fn db_open(app: &tauri::AppHandle) -> Result<Connection, String> {
   Ok(conn)
 }
 
+/// 共享的 ureq Agent：keep-alive 连接池。图库缩略图全部打同一个源站，
+/// 复用 TLS 连接省掉每张图一次握手的 1~2 秒；一次性的 ureq::get
+/// 每张图都要重新建连，是首屏慢的主因之一。
+static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+fn agent() -> &'static ureq::Agent {
+  AGENT.get_or_init(|| {
+    ureq::AgentBuilder::new()
+      .max_idle_connections_per_host(8)
+      .timeout_connect(Duration::from_secs(10))
+      .build()
+  })
+}
+
+/// 下载闸门：可见缩略图与后台预取共用，同一时刻最多 6 个在途请求。
+/// 几十张卡同时发起会互相挤带宽、每个都变慢；限流反而整体更快，
+/// 也避免源站把高并发当成异常流量。
+struct Gate {
+  max: usize,
+  held: Mutex<usize>,
+  cv: Condvar,
+}
+
+static DL_GATE: Gate = Gate {
+  max: 6,
+  held: Mutex::new(0),
+  cv: Condvar::new(),
+};
+
+struct GatePermit;
+
+impl Drop for GatePermit {
+  fn drop(&mut self) {
+    let mut held = DL_GATE.held.lock().unwrap();
+    *held -= 1;
+    DL_GATE.cv.notify_one();
+  }
+}
+
+fn dl_permit() -> GatePermit {
+  let mut held = DL_GATE.held.lock().unwrap();
+  while *held >= DL_GATE.max {
+    held = DL_GATE.cv.wait(held).unwrap();
+  }
+  *held += 1;
+  GatePermit
+}
+
 fn download(url: &str) -> Result<Vec<u8>, String> {
-  let res = ureq::get(url)
+  let _permit = dl_permit();
+  let res = agent()
+    .get(url)
     .timeout(Duration::from_secs(30))
     .call()
     .map_err(|e| e.to_string())?;
@@ -395,5 +450,33 @@ mod tests {
       .unwrap();
     assert_eq!(mime, "image/webp");
     assert_eq!(bytes, vec![1, 2, 3]);
+  }
+
+  /// 真实网络对比：一次性连接 vs 连接池 + 闸门并发。
+  /// 本地手跑：cargo test bench_thumb_download -- --ignored --nocapture
+  #[test]
+  #[ignore]
+  fn bench_thumb_download() {
+    let urls: Vec<String> = [
+      "f71f980dde3", "f009cba9893", "f06fe4f6b36", "f15a069b8a3", "f29201630d2", "f3ef523a678",
+    ]
+    .iter()
+    .map(|c| format!("https://ai-pose-gallery.anhao.app/thumbs/portrait/{c}.webp"))
+    .collect();
+    let t = std::time::Instant::now();
+    let ok_serial = urls.iter().filter(|u| download(u).is_ok()).count();
+    let serial = t.elapsed();
+    let t = std::time::Instant::now();
+    let handles: Vec<_> = urls
+      .iter()
+      .map(|u| {
+        let u = u.clone();
+        std::thread::spawn(move || download(&u).is_ok())
+      })
+      .collect();
+    let ok_pooled = handles.into_iter().map(|h| h.join().unwrap()).filter(|ok| *ok).count();
+    let pooled = t.elapsed();
+    println!("serial  (one-shot ×6): {serial:?} ok={ok_serial}");
+    println!("parallel (agent+gate): {pooled:?} ok={ok_pooled}");
   }
 }

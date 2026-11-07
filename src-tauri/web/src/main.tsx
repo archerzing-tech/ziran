@@ -253,6 +253,19 @@ const assetUrl = (origin: string, path: string) => {
   return base ? `${base}/${path}` : path
 }
 
+// 全图 → 缩略图映射：图库源站在慢网下可能要好几秒才吐出一张全图，
+// 画板和小条先用缩略图秒显（浏览图库时已进内存/本地库），全图解析
+// 完成后再替换。refs 里存的仍是全图 URL，生成请求按 URL 现取，不受影响。
+const FULL_TO_THUMB = new Map<string, string>()
+for (const cat of Object.values(CATALOGS)) {
+  if (!cat?.origin) continue
+  for (const p of cat.poses) {
+    for (const v of p.views) {
+      if (v.full && v.thumb) FULL_TO_THUMB.set(assetUrl(cat.origin, v.full), assetUrl(cat.origin, v.thumb))
+    }
+  }
+}
+
 function loadRefMeta() {
   const out: Record<RefKey, RefMeta | null> = { pose: null, costume: null, face: null }
   try {
@@ -825,7 +838,48 @@ function App() {
   const showAdvanced = advanced || settings.provider === 'custom'
 
   const activeRef = refs[active]
-  const canvasSource = result || activeRef
+  // 画板显示用本地解析出的 data URI：缩略图先上（秒显），全图到了再替换。
+  // 直接把远程 URL 丢给 <img> 会吃满源站的慢链路，预热了本地库也用不上。
+  const [boardSrc, setBoardSrc] = useState('')
+  const [boardBusy, setBoardBusy] = useState(false)
+  const canvasSource = result || boardSrc
+  useEffect(() => {
+    let cancelled = false
+    setBoardSrc('')
+    setBoardBusy(false)
+    if (!activeRef) return
+    if (activeRef.startsWith('data:')) {
+      setBoardSrc(activeRef)
+      return
+    }
+    const thumb = FULL_TO_THUMB.get(activeRef)
+    if (thumb) {
+      cachedSrc(thumb, active)
+        .then((s) => {
+          if (!cancelled) setBoardSrc((prev) => prev || s)
+        })
+        .catch(() => {})
+    }
+    setBoardBusy(true)
+    cachedSrc(activeRef, 'ref')
+      .then((s) => {
+        if (!cancelled) {
+          setBoardSrc(s)
+          setBoardBusy(false)
+        }
+      })
+      .catch(() => {
+        // 纯浏览器开发模式没有后端：退回远程地址直显
+        if (!cancelled) {
+          setBoardSrc(activeRef)
+          setBoardBusy(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRef])
   useEffect(() => {
     // 切换显示的图片时先回到默认画幅，等新图 onLoad 再贴合其比例
     setSrcDims(null)
@@ -942,11 +996,14 @@ function App() {
                 />
               )}
               {!canvasSource && (
-                <div className="empty">
+                <div className={`empty ${boardBusy ? 'is-loading' : ''}`}>
                   <Icon name="image" size={30} />
                 </div>
               )}
               <span className="artboard-tag">{canvasLabel}</span>
+              {!result && boardBusy && canvasSource && (
+                <span className="board-upgrading">高清原图加载中…</span>
+              )}
             </div>
           </div>
 
@@ -1138,7 +1195,7 @@ function App() {
                   }}
                   title={refs[key] ? '点击查看大图' : undefined}
                 >
-                  {refs[key] ? <img src={refs[key] as string} alt={REF_META[key].name} /> : <Icon name="plus" size={14} />}
+                  {refs[key] ? <RefThumb url={refs[key]} kind={key} /> : <Icon name="plus" size={14} />}
                 </div>
                 <div className="ref-meta">
                   <span className="ref-name">{REF_META[key].name}</span>
@@ -1297,7 +1354,7 @@ function App() {
               <Icon name="close" size={18} />
             </button>
             <div className="preview-body">
-              <img src={preview.src} alt={preview.title} />
+              <PreviewImg url={preview.src} />
             </div>
             <div className="preview-title">{preview.title}</div>
           </div>
@@ -1441,6 +1498,15 @@ function RefGallery({
     return view ? { item: picked.item, view } : null
   }, [picked])
 
+  // 单选即预热整图：点一下卡片，全图就开始进本地库，等真的
+  // 「载入画板」时多半已经就位，画板立即显示高清版
+  useEffect(() => {
+    const sel = selected
+    if (!sel || !catalog.origin || !sel.view.full) return
+    invoke('image_data_uri', { url: assetUrl(catalog.origin, sel.view.full), kind }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -1464,6 +1530,34 @@ function RefGallery({
     }, 700)
     return () => clearInterval(t)
   }, [dl?.active])
+
+  // 打开图库或切换分类时，后台把当前范围的缩略图预热进本地库
+  // （gallery.db），翻页/重开就是秒开。搜索词不触发，避免每敲一个
+  // 字都起一轮任务；后台进行中的进度由上面的 dl 轮询展示。
+  const warmKey = `${kind}:${systemId}:${category}`
+  const warmScope = useMemo(
+    () =>
+      catalog.origin
+        ? systemItems
+            .filter((p) => category === '全部' || p.category === category)
+            .flatMap((p) => (p.views[0]?.thumb ? [assetUrl(catalog.origin, p.views[0].thumb)] : []))
+        : [],
+    [catalog.origin, systemItems, category]
+  )
+  useEffect(() => {
+    if (!warmScope.length) return
+    let cancelled = false
+    invoke<number>('prefetch_start', { urls: warmScope, kind })
+      .then((missing) => {
+        if (!cancelled && missing > 0) setDl({ total: missing, done: 0, failed: 0, active: true })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // warmScope 随 warmKey 一起变；按 key 触发，搜索词变化不重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warmKey])
 
   // 把该图库的全部缩略图下载进本机 SQLite（gallery.db），离线可浏览
   const startOffline = async () => {
@@ -1653,6 +1747,53 @@ async function cachedSrc(url: string, kind: string): Promise<string> {
   const uri = await invoke<string>('image_data_uri', { url, kind })
   cacheThumb(url, uri)
   return uri
+}
+
+// 参考图小条用本地缓存显示：优先缩略图（图库里点过就已在内存），
+// 没有映射再退回全图本身。慢网下不再卡在远程地址上。
+function RefThumb({ url, kind }: { url: string | null; kind: RefKey }) {
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    setSrc('')
+    if (!url) return
+    if (url.startsWith('data:')) {
+      setSrc(url)
+      return
+    }
+    cachedSrc(FULL_TO_THUMB.get(url) ?? url, kind)
+      .then((s) => {
+        if (!cancelled) setSrc(s)
+      })
+      .catch(() => {
+        if (!cancelled) setSrc(url)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [url, kind])
+  return src ? <img src={src} alt={REF_META[kind].name} /> : null
+}
+
+// 大图预览走本地库：全图多半已被画板/点选预热，直接命中缓存
+function PreviewImg({ url }: { url: string }) {
+  const [src, setSrc] = useState(url.startsWith('data:') ? url : '')
+  useEffect(() => {
+    if (url.startsWith('data:')) return
+    let cancelled = false
+    cachedSrc(url, 'ref')
+      .then((s) => {
+        if (!cancelled) setSrc(s)
+      })
+      .catch(() => {
+        if (!cancelled) setSrc(url)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [url])
+  if (!src) return <span className="thumb-loading" aria-label="加载中" />
+  return <img src={src} alt="" />
 }
 
 function GalleryImage({

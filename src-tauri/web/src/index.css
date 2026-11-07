@@ -1506,6 +1506,67 @@ select.input {
   height: 100%;
 }
 
+/* 加载中的微光占位：让"图在路上"看得见在动，而不是一块死黑 */
+.pose-thumb-media:empty::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent 32%, rgba(255, 255, 255, 0.05) 50%, transparent 68%) no-repeat;
+  background-size: 220% 100%;
+  animation: thumb-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes thumb-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -130% 0;
+  }
+}
+
+/* 画板缩略图已显、全图还在后台解析时的角标 */
+.board-upgrading {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(12, 13, 18, 0.72);
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* 画板在等第一张图时的呼吸感 */
+.empty.is-loading {
+  animation: board-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes board-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 大图预览等待本地解析的占位 */
+.thumb-loading {
+  display: block;
+  width: 320px;
+  height: 320px;
+  border-radius: 8px;
+  background: linear-gradient(100deg, transparent 32%, rgba(255, 255, 255, 0.05) 50%, transparent 68%) no-repeat #131318;
+  background-size: 220% 100%;
+  animation: thumb-shimmer 1.6s ease-in-out infinite;
+}
+
 .pose-card {
   position: relative;
   padding: 0;
