@@ -387,6 +387,7 @@ function App() {
   const [refMeta, setRefMeta] = useState<Record<RefKey, RefMeta | null>>(loadRefMeta)
   const [galleryOpen, setGalleryOpen] = useState<RefKey | null>(null)
   const [preview, setPreview] = useState<{ src: string; title: string } | null>(null)
+  const [srcDims, setSrcDims] = useState<{ w: number; h: number } | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [showGuide, setShowGuide] = useState(() => {
     try {
@@ -423,9 +424,10 @@ function App() {
   }, [refMeta])
 
   const activeRatio = ratioMeta(settings.ratio)
-  const boardScale = ARTBOARD / Math.max(activeRatio.w, activeRatio.h)
-  const boardW = Math.round(activeRatio.w * boardScale)
-  const boardH = Math.round(activeRatio.h * boardScale)
+  // 画板随当前显示图片的真实比例自适应，避免参考图/成图留黑边；空板时用所选画幅比例
+  const shownScale = srcDims ? ARTBOARD / Math.max(srcDims.w, srcDims.h) : ARTBOARD / Math.max(activeRatio.w, activeRatio.h)
+  const boardW = Math.round((srcDims ? srcDims.w : activeRatio.w) * shownScale)
+  const boardH = Math.round((srcDims ? srcDims.h : activeRatio.h) * shownScale)
 
   useEffect(() => {
     if (!autoFit) return
@@ -700,6 +702,10 @@ function App() {
 
   const activeRef = refs[active]
   const canvasSource = result || activeRef
+  useEffect(() => {
+    // 切换显示的图片时先回到默认画幅，等新图 onLoad 再贴合其比例
+    setSrcDims(null)
+  }, [canvasSource])
   const canvasLabel = result
     ? '生成结果'
     : activeRef
@@ -809,7 +815,14 @@ function App() {
             <div className="artboard" style={{ width: boardW, height: boardH }}>
               <div className="checker" />
               {grid && <div className="artboard-grid" />}
-              {canvasSource && <img className="artboard-image" src={canvasSource} alt={canvasLabel} />}
+              {canvasSource && (
+                <img
+                  className="artboard-image"
+                  src={canvasSource}
+                  alt={canvasLabel}
+                  onLoad={(e) => setSrcDims({ w: e.currentTarget.naturalWidth || 1, h: e.currentTarget.naturalHeight || 1 })}
+                />
+              )}
               {!canvasSource && (
                 <div className="empty">
                   <Icon name="image" size={30} />
