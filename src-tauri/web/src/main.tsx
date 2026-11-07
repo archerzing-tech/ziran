@@ -6,13 +6,14 @@ import poseCatalogJson from './data/poses.json'
 import costumeCatalogJson from './data/costumes.json'
 import faceCatalogJson from './data/faces.json'
 
+type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string }
 type Settings = {
-  apiKey: string
   provider: string
-  model: string
-  baseUrl: string
   ratio: string
+  // 每个供应商一份独立配置：切模型各用各的 Key，模型/地址的自定义也互不覆盖
+  configs: Record<string, ProviderUserConfig>
 }
+const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '' }
 
 type RefKey = 'photo' | 'pose' | 'costume' | 'face'
 type Refs = Record<RefKey, string | null>
@@ -208,13 +209,7 @@ async function openExternal(url: string) {
   }
 }
 
-const DEFAULT_SETTINGS: Settings = {
-  apiKey: '',
-  provider: 'ark',
-  model: 'doubao-seedream-5-0-flash-260915',
-  baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-  ratio: '1:1'
-}
+const DEFAULT_SETTINGS: Settings = { provider: 'ark', ratio: '1:1', configs: {} }
 
 const STORAGE_KEY = 'ziran.settings'
 const EMPTY_REFS: Refs = { photo: null, pose: null, costume: null, face: null }
@@ -283,15 +278,48 @@ function loadRefMeta() {
   return out
 }
 
+// 配置项清洗：只留字符串字段，全空的条目丢弃
+function sanitizeConfigs(raw: unknown): Record<string, ProviderUserConfig> {
+  const out: Record<string, ProviderUserConfig> = {}
+  if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (!v || typeof v !== 'object') continue
+      const c = v as Record<string, unknown>
+      const apiKey = typeof c.apiKey === 'string' ? c.apiKey : ''
+      const model = typeof c.model === 'string' ? c.model : ''
+      const baseUrl = typeof c.baseUrl === 'string' ? c.baseUrl : ''
+      if (apiKey || model || baseUrl) out[k] = { apiKey, model, baseUrl }
+    }
+  }
+  return out
+}
+
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULT_SETTINGS
-    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings
-    const known = DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
-    if (!known) parsed.provider = DEFAULT_SETTINGS.provider
-    if (!RATIOS.some((r) => r.id === parsed.ratio)) parsed.ratio = DEFAULT_SETTINGS.ratio
-    return parsed
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const pickRatio = (v: unknown) =>
+      typeof v === 'string' && RATIOS.some((r) => r.id === v) ? v : DEFAULT_SETTINGS.ratio
+    // 旧格式（全局单一 apiKey）迁移：挪进当时所用供应商名下，其余供应商不受影响
+    if (typeof parsed.apiKey === 'string' && !parsed.configs) {
+      const legacyProvider =
+        typeof parsed.provider === 'string' && DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
+          ? parsed.provider
+          : DEFAULT_SETTINGS.provider
+      return {
+        provider: legacyProvider,
+        ratio: pickRatio(parsed.ratio),
+        configs: sanitizeConfigs({
+          [legacyProvider]: { apiKey: parsed.apiKey, model: parsed.model, baseUrl: parsed.baseUrl }
+        })
+      }
+    }
+    const provider =
+      typeof parsed.provider === 'string' && DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
+        ? parsed.provider
+        : DEFAULT_SETTINGS.provider
+    return { provider, ratio: pickRatio(parsed.ratio), configs: sanitizeConfigs(parsed.configs) }
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -381,6 +409,13 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   fit: <path d="M4.5 9.4V4.5h4.9M19.5 9.4V4.5h-4.9M4.5 14.6v4.9h4.9M19.5 14.6v4.9h-4.9" />,
+  settings: (
+    <>
+      <path d="M4.5 7.5h15M4.5 16.5h15" />
+      <circle cx="9.5" cy="7.5" r="2.2" />
+      <circle cx="14.5" cy="16.5" r="2.2" />
+    </>
+  ),
   key: (
     <>
       <circle cx="8.2" cy="12" r="3.7" />
@@ -445,7 +480,7 @@ function App() {
   const [galleryOpen, setGalleryOpen] = useState<RefKey | null>(null)
   const [preview, setPreview] = useState<{ src: string; title: string } | null>(null)
   const [srcDims, setSrcDims] = useState<{ w: number; h: number } | null>(null)
-  const [advanced, setAdvanced] = useState(false)
+
   const [showGuide, setShowGuide] = useState(() => {
     try {
       return localStorage.getItem(`${STORAGE_KEY}.guide`) !== '1'
@@ -454,7 +489,6 @@ function App() {
     }
   })
   const [missing, setMissing] = useState<'key' | 'pose' | null>(null)
-  const keyRef = useRef<HTMLInputElement | null>(null)
   const promptRef = useRef<HTMLTextAreaElement | null>(null)
   const [zoom, setZoom] = useState(1)
   const [grid, setGrid] = useState(true)
@@ -536,19 +570,34 @@ function App() {
   }, [autoFit, boardW, boardH])
 
   const update = (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch }))
-  // 切换供应商：自定义过的模型 / 地址保留，否则跟随新供应商的默认值
-  // （网格卡片与高级设置下拉都走这一条路，避免两处行为不一致）
-  const switchProvider = (value: string) => {
-    const prev = providerMeta(settings.provider)
-    const next = providerMeta(value)
-    const keepModel = Boolean(settings.model.trim()) && settings.model !== prev.model
-    const keepBase = Boolean(settings.baseUrl.trim()) && settings.baseUrl !== prev.baseUrl
-    update({
-      provider: value,
-      model: keepModel ? settings.model : next.model,
-      baseUrl: keepBase ? settings.baseUrl : next.baseUrl
-    })
+  // 每供应商独立配置的读取：Key 各用各的；模型/地址留空就跟随该供应商默认
+  const effConfig = (value: string): ProviderUserConfig => settings.configs[value] ?? EMPTY_PCONF
+  const effModel = (value: string = settings.provider) => effConfig(value).model.trim() || providerMeta(value).model
+  const effBaseUrl = (value: string = settings.provider) => effConfig(value).baseUrl.trim() || providerMeta(value).baseUrl
+  const effKey = (value: string = settings.provider) => effConfig(value).apiKey
+  const updateProviderConfig = (value: string, patch: Partial<ProviderUserConfig>) =>
+    setSettings((prev) => ({
+      ...prev,
+      configs: { ...prev.configs, [value]: { ...(prev.configs[value] ?? EMPTY_PCONF), ...patch } }
+    }))
+  // 切换供应商只换 active；Key/模型各自跟随该供应商的独立配置
+  const switchProvider = (value: string) => update({ provider: value })
+  // 模型配置面板（独立于创作页面）
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [panelProvider, setPanelProvider] = useState(DEFAULT_SETTINGS.provider)
+  const panelMeta = providerMeta(panelProvider)
+  const openPanel = (value: string = settings.provider) => {
+    setPanelProvider(value)
+    setPanelOpen(true)
   }
+  useEffect(() => {
+    if (!panelOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPanelOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [panelOpen])
   const setRef = (key: RefKey, value: string | null) => {
     setRefs((prev) => {
       const next = { ...prev, [key]: value }
@@ -582,8 +631,10 @@ function App() {
     const meta = providerMeta(settings.provider)
     const ratio = ratioMeta(settings.ratio)
 
-    if (!settings.apiKey.trim()) {
-      setStatus({ text: '请先在右侧填入 API Key', tone: 'err' })
+    if (!effKey().trim()) {
+      setMissing('key')
+      setStatus({ text: `${meta.label} 还没有配置 API Key，请在模型配置里填写`, tone: 'err' })
+      openPanel()
       return
     }
     if (meta.refs && !refs.pose && !refs.photo) {
@@ -597,15 +648,15 @@ function App() {
 
     const refList = [refs.photo, refs.pose, refs.costume, refs.face].filter(Boolean) as string[]
     const promptText = prompt.trim() || autoPrompt(refs)
-    const base = (settings.baseUrl.trim() || meta.baseUrl).replace(/\/$/, '')
+    const base = effBaseUrl().replace(/\/$/, '')
     if (!base) {
-      setAdvanced(true)
-      setStatus({ text: `${meta.label} 需要先填写接口根地址（高级设置）`, tone: 'err' })
+      openPanel()
+      setStatus({ text: `${meta.label} 需要先在模型配置里填写接口根地址`, tone: 'err' })
       return
     }
 
-    const model = settings.model.trim() || meta.model
-    const key = settings.apiKey.trim()
+    const model = effModel()
+    const key = effKey().trim()
 
     setBusy(true)
     setStatus({ text: `正在生成图像 · ${meta.label}`, tone: 'busy' })
@@ -758,7 +809,7 @@ function App() {
   }, [])
 
   const activeProvider = providerMeta(settings.provider)
-  const hasKey = settings.apiKey.trim().length > 0
+  const hasKey = effKey().trim().length > 0
   const hasRef = Boolean(refs.pose || refs.photo)
   const step2Done = activeProvider.refs ? hasRef : prompt.trim().length > 0
   const ready = hasKey && step2Done
@@ -806,8 +857,8 @@ function App() {
   const runPrimary = () => {
     if (!hasKey) {
       setMissing('key')
-      setStatus({ text: '第一步：先填入 API Key', tone: 'err' })
-      keyRef.current?.focus()
+      setStatus({ text: `第一步：在模型配置里填写 ${activeProvider.label} 的 API Key`, tone: 'err' })
+      openPanel()
       return
     }
     if (!step2Done) {
@@ -828,14 +879,12 @@ function App() {
   const primaryLabel = busy
     ? '生成中…'
     : !hasKey
-      ? '第 1 步 · 填写 API Key'
+      ? '第 1 步 · 配置模型'
       : !step2Done
         ? activeProvider.refs
           ? '第 2 步 · 选姿势 / 传照片'
           : '第 2 步 · 写描述'
         : '生成图像'
-
-  const showAdvanced = advanced || settings.provider === 'custom'
 
   const activeRef = refs[active]
   // 画板显示用本地解析出的 data URI：缩略图先上（秒显），全图到了再替换。
@@ -1013,7 +1062,7 @@ function App() {
               <ol className="hint-steps">
                 <li className={hasKey ? 'is-done' : ''}>
                   <span className="hint-num">{hasKey ? <Icon name="check" size={10} /> : 1}</span>
-                  填 API Key{hasKey ? <em>已完成</em> : <em>必填</em>}
+                  配置模型{hasKey ? <em>已完成</em> : <em>必填</em>}
                 </li>
                 <li className={step2Done ? 'is-done' : ''}>
                   <span className="hint-num">{step2Done ? <Icon name="check" size={10} /> : 2}</span>
@@ -1027,10 +1076,10 @@ function App() {
               </ol>
               <button
                 className="ghost-btn"
-                onClick={() => (hasKey ? setGalleryOpen('pose') : keyRef.current?.focus())}
+                onClick={() => (hasKey ? setGalleryOpen('pose') : openPanel())}
               >
-                <Icon name={hasKey ? 'library' : 'key'} size={14} />
-                {hasKey ? '打开姿势图库' : '去填写 API Key'}
+                <Icon name={hasKey ? 'library' : 'settings'} size={14} />
+                {hasKey ? '打开姿势图库' : '去配置模型'}
               </button>
             </div>
           )}
@@ -1056,9 +1105,9 @@ function App() {
 
         <aside className="inspector">
           <div className="stepper">
-            <button className={`step ${hasKey ? 'is-done' : 'is-current'}`} onClick={() => keyRef.current?.focus()}>
+            <button className={`step ${hasKey ? 'is-done' : 'is-current'}`} onClick={() => openPanel()}>
               <span className="step-num">{hasKey ? <Icon name="check" size={11} /> : 1}</span>
-              <span className="step-text">填 Key</span>
+              <span className="step-text">选模型</span>
             </button>
             <span className={`step-line ${hasKey ? 'is-done' : ''}`} />
             <button
@@ -1077,79 +1126,30 @@ function App() {
 
           <div className="section">
             <div className="section-head">
-              <span>① 选服务商 · 填密钥</span>
-              <span className={`badge ${hasKey ? 'badge-ok' : 'badge-warn'}`}>{hasKey ? '已填写' : '必填'}</span>
+              <span>① 选模型</span>
+              <span className={`badge ${hasKey ? 'badge-ok' : 'badge-warn'}`}>{hasKey ? '已配置' : '需配置'}</span>
             </div>
 
-            <div className="provider-grid">
-              {providers.map((p) => (
-                <button
-                  key={p.value}
-                  className={`provider ${settings.provider === p.value ? 'is-active' : ''}`}
-                  onClick={() => switchProvider(p.value)}
-                >
-                  <span className="provider-label">{p.label}</span>
-                  <span className="provider-sub">{p.sub}</span>
-                  {p.refs && <span className="provider-tag">参考图</span>}
-                </button>
-              ))}
+            <div className="model-row">
+              <select
+                className="input model-pick"
+                value={settings.provider}
+                onChange={(e) => switchProvider(e.target.value)}
+                title="切换模型，各模型的 Key 在模型配置里分别填写"
+              >
+                {providers.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label} · {effModel(p.value)}
+                  </option>
+                ))}
+              </select>
+              <button className="config-btn" onClick={() => openPanel()} title="模型配置：每个模型的 API Key / 模型名 / 接口地址">
+                <Icon name="settings" size={15} />
+                配置
+              </button>
             </div>
 
             <p className="provider-desc">{activeProvider.desc}</p>
-
-            <div className="key-row">
-              <input
-                ref={keyRef}
-                className={`input mono ${missing === 'key' && !hasKey ? 'is-error' : ''}`}
-                type="password"
-                value={settings.apiKey}
-                onChange={(e) => update({ apiKey: e.target.value })}
-                placeholder={`粘贴 ${activeProvider.label} 的 API Key`}
-              />
-              {activeProvider.keyUrl && (
-                <button className="key-link" onClick={() => openExternal(activeProvider.keyUrl)} title={`申请入口 · ${activeProvider.keyHint}`}>
-                  <Icon name="chevron" size={13} />
-                </button>
-              )}
-            </div>
-            <p className="help">
-              {activeProvider.keyUrl && (
-                <button className="key-jump" onClick={() => openExternal(activeProvider.keyUrl)}>
-                  一键前往申请页 ↗
-                </button>
-              )}
-              {activeProvider.keyHint} · 只存在本机，自动保存
-            </p>
-            <div className="provider-config">
-              <span className="provider-config-label">供应商配置</span>
-              <button
-                className="key-jump"
-                title={providersPath || '打开配置文件夹'}
-                onClick={() =>
-                  invoke('open_config_dir')
-                    .then(() => setStatus({ text: '配置文件夹已在系统文件管理器打开，编辑 providers.json 保存即可', tone: 'ok' }))
-                    .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
-                }
-              >
-                编辑配置文件 ↗
-              </button>
-              <button className="key-jump" onClick={() => void applyProvidersFile(true)}>
-                重新加载
-              </button>
-              <button
-                className="key-jump"
-                onClick={() =>
-                  invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2) })
-                    .then(() => {
-                      setProviders(DEFAULT_PROVIDERS)
-                      setStatus({ text: '已恢复内置供应商默认配置', tone: 'ok' })
-                    })
-                    .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
-                }
-              >
-                恢复默认
-              </button>
-            </div>
           </div>
 
           <div className="section">
@@ -1269,53 +1269,9 @@ function App() {
             />
           </div>
 
-          <div className="section">
-            <button className="collapse-head" onClick={() => setAdvanced((v) => !v)}>
-              <span className={`collapse-arrow ${advanced ? 'is-open' : ''}`}>
-                <Icon name="chevron" size={11} />
-              </span>
-              <span>高级设置</span>
-              <span className="collapse-hint">
-                {settings.provider} · {settings.model}
-              </span>
-            </button>
-            {showAdvanced && (
-              <div className="collapse-body">
-                <div className="field">
-                  <label>服务商</label>
-                  <select className="input" value={settings.provider} onChange={(e) => switchProvider(e.target.value)}>
-                    {providers.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>模型</label>
-                  <input
-                    className="input mono"
-                    value={settings.model}
-                    onChange={(e) => update({ model: e.target.value })}
-                    placeholder="doubao-seedream-5-0-flash-260915"
-                  />
-                </div>
-                <div className="field">
-                  <label>Base URL</label>
-                  <input
-                    className="input mono"
-                    value={settings.baseUrl}
-                    onChange={(e) => update({ baseUrl: e.target.value })}
-                    placeholder="https://ark.cn-beijing.volces.com/api/v3"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
           <div className="inspector-footer">
             <button className={`primary ${!ready && !busy ? 'is-guiding' : ''}`} onClick={runPrimary} disabled={busy}>
-              <Icon name={ready ? 'sparkle' : hasKey ? 'library' : 'key'} size={16} />
+              <Icon name={ready ? 'sparkle' : hasKey ? 'library' : 'settings'} size={16} />
               {primaryLabel}
             </button>
             <p className="footer-note">
@@ -1375,8 +1331,8 @@ function App() {
               <li>
                 <span className="guide-num">1</span>
                 <div>
-                  <b>填 API Key</b>
-                  <p>去火山方舟控制台创建一个 Key，粘到右侧第一栏。只需填一次，之后自动记住。</p>
+                  <b>配置模型</b>
+                  <p>打开「模型配置」，给要用的模型填上 API Key（每个模型的 Key 分开保存，只需填一次）。</p>
                 </div>
               </li>
               <li>
@@ -1402,10 +1358,127 @@ function App() {
                 className="primary guide-start"
                 onClick={() => {
                   dismissGuide()
-                  keyRef.current?.focus()
+                  openPanel()
                 }}
               >
                 开始第 1 步
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {panelOpen && (
+        <div className="overlay" onClick={() => setPanelOpen(false)}>
+          <div className="model-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-head">
+              <Icon name="settings" size={16} />
+              <h2>模型配置</h2>
+              <span className="panel-hint">每个模型的 API Key 分开保存 · 只存本机</span>
+              <button className="icon-btn" onClick={() => setPanelOpen(false)} title="关闭" aria-label="关闭">
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div className="panel-body">
+              <nav className="panel-list">
+                {providers.map((p) => {
+                  const hasK = effKey(p.value).trim().length > 0
+                  return (
+                    <button
+                      key={p.value}
+                      className={`panel-item ${panelProvider === p.value ? 'is-active' : ''}`}
+                      onClick={() => setPanelProvider(p.value)}
+                    >
+                      <span className={`key-dot ${hasK ? 'is-ok' : ''}`} />
+                      <span className="panel-item-text">
+                        <span className="panel-item-label">{p.label}</span>
+                        <span className="panel-item-sub">{p.sub}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </nav>
+              <div className="panel-edit">
+                <p className="provider-desc">{panelMeta.desc}</p>
+                <div className="field">
+                  <label>API Key</label>
+                  <div className="key-row">
+                    <input
+                      className="input mono"
+                      type="password"
+                      value={effKey(panelMeta.value)}
+                      onChange={(e) => updateProviderConfig(panelMeta.value, { apiKey: e.target.value })}
+                      placeholder={`粘贴 ${panelMeta.label} 的 API Key`}
+                    />
+                    {panelMeta.keyUrl && (
+                      <button className="key-link" onClick={() => openExternal(panelMeta.keyUrl)} title={`申请入口 · ${panelMeta.keyHint}`}>
+                        <Icon name="chevron" size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="help">
+                    {panelMeta.keyUrl && (
+                      <button className="key-jump" onClick={() => openExternal(panelMeta.keyUrl)}>
+                        一键前往申请页 ↗
+                      </button>
+                    )}
+                    {panelMeta.keyHint} · 自动保存
+                  </p>
+                </div>
+                <div className="field">
+                  <label>模型</label>
+                  <input
+                    className="input mono"
+                    value={effConfig(panelMeta.value).model}
+                    onChange={(e) => updateProviderConfig(panelMeta.value, { model: e.target.value })}
+                    placeholder={panelMeta.model}
+                  />
+                </div>
+                <div className="field">
+                  <label>接口地址</label>
+                  <input
+                    className="input mono"
+                    value={effConfig(panelMeta.value).baseUrl}
+                    onChange={(e) => updateProviderConfig(panelMeta.value, { baseUrl: e.target.value })}
+                    placeholder={panelMeta.baseUrl}
+                  />
+                </div>
+                {!panelMeta.refs && <p className="help">该模型只按文字画图，不支持参考图。</p>}
+              </div>
+            </div>
+            <div className="panel-foot">
+              <div className="provider-config">
+                <span className="provider-config-label">providers.json</span>
+                <button
+                  className="key-jump"
+                  title={providersPath || '打开配置文件夹'}
+                  onClick={() =>
+                    invoke('open_config_dir')
+                      .then(() => setStatus({ text: '配置文件夹已在系统文件管理器打开，编辑 providers.json 保存即可', tone: 'ok' }))
+                      .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
+                  }
+                >
+                  编辑配置文件 ↗
+                </button>
+                <button className="key-jump" onClick={() => void applyProvidersFile(true)}>
+                  重新加载
+                </button>
+                <button
+                  className="key-jump"
+                  onClick={() =>
+                    invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2) })
+                      .then(() => {
+                        setProviders(DEFAULT_PROVIDERS)
+                        setStatus({ text: '已恢复内置供应商默认配置', tone: 'ok' })
+                      })
+                      .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
+                  }
+                >
+                  恢复默认
+                </button>
+              </div>
+              <button className="primary panel-done" onClick={() => setPanelOpen(false)}>
+                完成
               </button>
             </div>
           </div>
@@ -1422,9 +1495,9 @@ function App() {
           <span className="status-sep" />
           <span>RGB · 8 位</span>
           <span className="status-sep" />
-          <span className="mono">{settings.provider} / {settings.model}</span>
+          <span className="mono">{activeProvider.label} / {effModel()}</span>
           <span className="status-sep" />
-          <span className="mono">{settings.apiKey.trim() ? '密钥已设置' : '密钥未设置'}</span>
+          <span className="mono">{hasKey ? '密钥已设置' : '密钥未设置'}</span>
         </div>
       </footer>
     </div>

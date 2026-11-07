@@ -836,61 +836,36 @@ select.input {
   color: var(--text-faint);
 }
 
-.provider-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* ① 区：模型下拉 + 配置入口 */
+.model-row {
+  display: flex;
   gap: 6px;
-  margin-bottom: 9px;
+  align-items: stretch;
 }
 
-.provider {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 7px 9px;
+.model-pick {
+  flex: 1;
+  min-width: 0;
+}
+
+.config-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 0 10px;
   border-radius: 6px;
   border: 1px solid var(--line-2);
   background: #15151a;
-  text-align: left;
+  color: var(--text-dim);
+  font-size: 11px;
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color 0.12s, color 0.12s;
 }
 
-.provider:hover {
-  border-color: var(--text-faint);
-}
-
-.provider.is-active {
+.config-btn:hover {
   border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.provider-label {
-  font-size: 12px;
-  color: var(--text);
-  line-height: 1.3;
-}
-
-.provider-sub {
-  font-size: 9.5px;
-  color: var(--text-faint);
-  font-family: var(--mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.provider-tag {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  padding: 0 3px;
-  border-radius: 2px;
-  background: rgba(62, 207, 142, 0.16);
-  color: var(--ok);
-  font-size: 8.5px;
-  line-height: 13px;
+  color: var(--accent);
 }
 
 .provider-desc {
@@ -1044,54 +1019,168 @@ select.input {
 
 .provider-config .key-jump {
   font-size: 11px;
+  white-space: nowrap; /* CJK 无空格，容器一挤就会逐字竖排 */
 }
 
-.collapse-head {
+/* 模型配置面板 */
+.model-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(700px, calc(100vw - 48px));
+  max-height: min(600px, calc(100vh - 64px));
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: #16161c;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.panel-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  font-size: 10.5px;
+  gap: 8px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-faint);
 }
 
-.collapse-head:hover {
-  color: var(--text-dim);
-}
-
-.collapse-arrow {
-  display: inline-flex;
-  transform: rotate(-90deg);
-  transition: transform 0.14s;
-  color: inherit;
-}
-
-.collapse-arrow.is-open {
-  transform: rotate(90deg);
-}
-
-.collapse-hint {
+.panel-head .icon-btn {
   margin-left: auto;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0;
-  text-transform: none;
+}
+
+.panel-hint {
+  font-size: 10.5px;
   color: var(--text-faint);
-  max-width: 55%;
+}
+
+.panel-body {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel-list {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.panel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.panel-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.panel-item.is-active {
+  background: var(--accent-soft);
+}
+
+.key-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3a3a44;
+}
+
+.key-dot.is-ok {
+  background: var(--ok);
+}
+
+.panel-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.panel-item-label {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.panel-item-sub {
+  font-size: 9.5px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.collapse-body {
-  margin-top: 10px;
+.panel-edit {
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.panel-edit .provider-desc {
+  margin: 0;
+}
+
+.panel-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.panel-foot .provider-config {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* .primary 自带 width:100%，在 flex 行里会把基值撑满整行，
+   把左边的 providers.json 操作挤成竖排文字——这里收回自适应宽。 */
+.panel-done {
+  flex: none;
+  width: auto;
+  min-width: 104px;
+  padding: 0 18px;
+}
+
+@media (max-width: 720px) {
+  .panel-body {
+    grid-template-columns: 1fr;
+  }
+  .panel-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel-item {
+    width: auto;
+  }
 }
 
 .canvas-hint {
