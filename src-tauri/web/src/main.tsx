@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { invoke } from '@tauri-apps/api/core'
 import poseCatalogJson from './data/poses.json'
 import costumeCatalogJson from './data/costumes.json'
 import faceCatalogJson from './data/faces.json'
@@ -13,11 +14,11 @@ type Settings = {
   ratio: string
 }
 
-type RefKey = 'pose' | 'costume' | 'face'
+type RefKey = 'photo' | 'pose' | 'costume' | 'face'
 type Refs = Record<RefKey, string | null>
 type Tone = 'neutral' | 'busy' | 'ok' | 'err'
 
-type ProviderShape = 'ark' | 'siliconflow' | 'openai'
+type ProviderShape = 'ark' | 'siliconflow' | 'openai' | 'gptimage' | 'gemini' | 'minimax'
 
 const PROVIDERS: {
   value: string
@@ -73,11 +74,35 @@ const PROVIDERS: {
     sub: 'gpt-image-1',
     model: 'gpt-image-1',
     baseUrl: 'https://api.openai.com/v1',
-    desc: '官方 images 接口，需能直连 openai.com。',
+    desc: '官方 images/edits 接口，最多 3 张参考图；尺寸只有方/竖/横三档，需能直连 openai.com。',
     keyUrl: 'https://platform.openai.com/api-keys',
     keyHint: 'OpenAI Platform → API keys',
     refs: true,
-    shape: 'openai'
+    shape: 'gptimage'
+  },
+  {
+    value: 'gemini',
+    label: 'Gemini',
+    sub: 'Nano Banana',
+    model: 'gemini-2.5-flash-image',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    desc: 'Google 图像模型，多参考图、人物一致性强；国内网络需代理。进阶可把模型改成 gemini-3-pro-image（更强更贵）。',
+    keyUrl: 'https://aistudio.google.com/apikey',
+    keyHint: 'Google AI Studio → Get API key（免费额度）',
+    refs: true,
+    shape: 'gemini'
+  },
+  {
+    value: 'minimax',
+    label: 'MiniMax',
+    sub: 'image-01',
+    model: 'image-01',
+    baseUrl: 'https://api.minimax.io/v1',
+    desc: '官方图像接口只认一张角色参考图（优先取人脸），姿势主要靠文字描述；H3 是视频模型，暂不适用。',
+    keyUrl: 'https://platform.minimax.io/console',
+    keyHint: 'MiniMax 开放平台 → 账户管理 → API Keys',
+    refs: true,
+    shape: 'minimax'
   },
   {
     value: 'custom',
@@ -104,6 +129,44 @@ const RATIOS = [
 const providerMeta = (id: string) => PROVIDERS.find((p) => p.value === id) ?? PROVIDERS[0]
 const ratioMeta = (id: string) => RATIOS.find((r) => r.id === id) ?? RATIOS[0]
 
+// 参考图 → 本地 SQLite 库中的 { mime, base64 }（首次取用自动下载入库）
+async function refDataUri(url: string): Promise<{ mime: string; data: string }> {
+  const uri = await invoke<string>('image_data_uri', { url, kind: 'ref' })
+  const m = /^data:([^;]+);base64,([\s\S]+)$/.exec(uri)
+  if (!m) throw new Error('图像数据异常')
+  return { mime: m[1], data: m[2] }
+}
+
+// 按已载入的参考图自动拼提示词：一张人物照片 + 一个姿势即可出图，服装/人脸是增强项
+function autoPrompt(refs: Refs): string {
+  const seg: string[] = []
+  if (refs.photo && refs.pose) {
+    seg.push('以人物照片中的主角为准，保持其长相、发型与体型特征')
+    seg.push('让主角摆出姿势参考中的动作与机位')
+  } else if (refs.photo) {
+    seg.push('以人物照片中的主角为主，生成一张自然真实的写真照片')
+  } else if (refs.pose && refs.face) {
+    seg.push('保持参考人物的五官与发型特征')
+    seg.push('让人物摆出姿势参考中的动作与机位')
+  } else if (refs.pose) {
+    seg.push('按照姿势参考的姿态与构图，生成一位自然真实的人物')
+  } else if (refs.face) {
+    seg.push('以参考人物的五官与发型为特征，生成一张自然真实的人物照片')
+  }
+  if (refs.costume) seg.push('服装与穿搭遵循参考服装图的整套样式与材质')
+  seg.push('画面高清、光影自然')
+  return seg.join('，')
+}
+
+async function openExternal(url: string) {
+  try {
+    await invoke('open_url', { url })
+  } catch {
+    // plain-browser dev mode: Tauri command unavailable
+    window.open(url, '_blank')
+  }
+}
+
 const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   provider: 'ark',
@@ -113,8 +176,9 @@ const DEFAULT_SETTINGS: Settings = {
 }
 
 const STORAGE_KEY = 'ziran.settings'
-const EMPTY_REFS: Refs = { pose: null, costume: null, face: null }
+const EMPTY_REFS: Refs = { photo: null, pose: null, costume: null, face: null }
 const REF_META: Record<RefKey, { name: string; hint: string }> = {
+  photo: { name: '人物照片', hint: '上传一张照片，配姿势即可生成（与人脸二选一）' },
   pose: { name: '姿势', hint: '人体姿态参考' },
   costume: { name: '服装', hint: '服饰材质参考' },
   face: { name: '人脸', hint: '五官与发型参考' }
@@ -135,7 +199,7 @@ type RefMeta = { name: string; code: string; angle: string }
 const POSE_CATALOG = poseCatalogJson as GalleryCatalog
 const COSTUME_CATALOG = costumeCatalogJson as GalleryCatalog
 const FACE_CATALOG = faceCatalogJson as GalleryCatalog
-const CATALOGS: Record<RefKey, GalleryCatalog> = {
+const CATALOGS: Partial<Record<RefKey, GalleryCatalog>> = {
   pose: POSE_CATALOG,
   costume: COSTUME_CATALOG,
   face: FACE_CATALOG
@@ -378,7 +442,18 @@ function App() {
 
   const update = (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch }))
   const setRef = (key: RefKey, value: string | null) => {
-    setRefs((prev) => ({ ...prev, [key]: value }))
+    setRefs((prev) => {
+      const next = { ...prev, [key]: value }
+      // 人物照片与人脸同为「人物身份」来源，二者互斥，后选的生效
+      if (key === 'photo' && value && prev.face) {
+        next.face = null
+        setStatus({ text: '已改用人物照片作为人物依据，原人脸参考已移除', tone: 'ok' })
+      } else if (key === 'face' && value && prev.photo) {
+        next.photo = null
+        setStatus({ text: '已改用人脸参考作为人物依据，原人物照片已移除', tone: 'ok' })
+      }
+      return next
+    })
     setActive(key)
   }
   const bumpZoom = (delta: number) => {
@@ -403,8 +478,8 @@ function App() {
       setStatus({ text: '请先在右侧填入 API Key', tone: 'err' })
       return
     }
-    if (meta.refs && !refs.pose) {
-      setStatus({ text: '请先载入姿势参考图', tone: 'err' })
+    if (meta.refs && !refs.pose && !refs.photo) {
+      setStatus({ text: '请先选一个姿势，或上传一张人物照片', tone: 'err' })
       return
     }
     if (!meta.refs && !prompt.trim()) {
@@ -412,8 +487,8 @@ function App() {
       return
     }
 
-    const refList = [refs.pose, refs.costume, refs.face].filter(Boolean) as string[]
-    const promptText = prompt.trim() || '同一个人物，保持五官特征，穿着参考服装，摆出参考姿势'
+    const refList = [refs.photo, refs.pose, refs.costume, refs.face].filter(Boolean) as string[]
+    const promptText = prompt.trim() || autoPrompt(refs)
     const base = (settings.baseUrl.trim() || meta.baseUrl).replace(/\/$/, '')
     if (!base) {
       setAdvanced(true)
@@ -421,63 +496,131 @@ function App() {
       return
     }
 
-    const body: Record<string, unknown> =
-      meta.shape === 'siliconflow'
-        ? {
-            model: settings.model || meta.model,
-            prompt: promptText,
-            ...(refList[0] ? { image: refList[0] } : {}),
-            ...(refList[1] ? { image2: refList[1] } : {}),
-            ...(refList[2] ? { image3: refList[2] } : {})
-          }
-        : meta.shape === 'ark'
-          ? {
-              model: settings.model || meta.model,
-              prompt: promptText,
-              image: refList.slice(0, 3),
-              response_format: 'url',
-              size: ratio.size
-            }
-          : {
-              model: settings.model || meta.model,
-              prompt: promptText,
-              ...(refList.length ? { image: refList } : {}),
-              size: ratio.size
-            }
+    const model = settings.model.trim() || meta.model
+    const key = settings.apiKey.trim()
 
     setBusy(true)
     setStatus({ text: `正在生成图像 · ${meta.label}`, tone: 'busy' })
     try {
-      const res = await fetch(`${base}/images/generations`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey.trim()}`
-        },
-        body: JSON.stringify(body)
-      })
-
-      const text = await res.text()
-      if (!res.ok) {
-        setStatus({ text: `生成失败 ${res.status} · ${text.slice(0, 180)}`, tone: 'err' })
-        return
-      }
-
       let output = ''
-      try {
+
+      if (meta.shape === 'gemini') {
+        const parts: Record<string, unknown>[] = [{ text: promptText }]
+        for (const url of refList.slice(0, 4)) {
+          const { mime, data } = await refDataUri(url)
+          parts.push({ inline_data: { mime_type: mime, data } })
+        }
+        const res = await fetch(`${base}/models/${model}:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: ratio.id } }
+          })
+        })
+        const text = await res.text()
+        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
+        const seg = (JSON.parse(text)?.candidates?.[0]?.content?.parts ?? []).find(
+          (p: { inlineData?: { data?: string } }) => p?.inlineData?.data
+        )
+        if (seg?.inlineData?.data) {
+          output = `data:${seg.inlineData.mimeType || 'image/png'};base64,${seg.inlineData.data}`
+        }
+      } else if (meta.shape === 'minimax') {
+        const subject = refs.photo || refs.face || refs.pose || refs.costume
+        const res = await fetch(`${base}/image_generation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          body: JSON.stringify({
+            model,
+            prompt: promptText,
+            aspect_ratio: ratio.id,
+            ...(subject ? { subject_reference: [{ type: 'character', image_file: subject }] } : {})
+          })
+        })
+        const text = await res.text()
+        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
         const data = JSON.parse(text)
-        output = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || data?.url || ''
-      } catch {
-        // handled below
+        if (data?.base_resp?.status_code) {
+          throw new Error(`生成失败 · ${data.base_resp.status_msg || 'MiniMax 返回错误'}`)
+        }
+        output = data?.data?.image_urls?.[0] || ''
+      } else if (meta.shape === 'gptimage') {
+        // gpt-image-1 只接受 1024 方/竖/横三档尺寸
+        const gptSize = ratio.w === ratio.h ? '1024x1024' : ratio.w > ratio.h ? '1536x1024' : '1024x1536'
+        let res: Response
+        if (refList.length) {
+          const form = new FormData()
+          form.append('model', model)
+          form.append('prompt', promptText)
+          form.append('size', gptSize)
+          for (const url of refList.slice(0, 4)) {
+            const { mime, data } = await refDataUri(url)
+            const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+            form.append('image[]', new Blob([bytes], { type: mime }), 'ref.png')
+          }
+          res = await fetch(`${base}/images/edits`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${key}` },
+            body: form
+          })
+        } else {
+          res = await fetch(`${base}/images/generations`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+            body: JSON.stringify({ model, prompt: promptText, size: gptSize })
+          })
+        }
+        const text = await res.text()
+        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
+        const b64 = JSON.parse(text)?.data?.[0]?.b64_json || ''
+        if (b64) output = `data:image/png;base64,${b64}`
+      } else {
+        const body: Record<string, unknown> =
+          meta.shape === 'siliconflow'
+            ? {
+                model,
+                prompt: promptText,
+                ...(refList[0] ? { image: refList[0] } : {}),
+                ...(refList[1] ? { image2: refList[1] } : {}),
+                ...(refList[2] ? { image3: refList[2] } : {})
+              }
+            : meta.shape === 'ark'
+              ? {
+                  model,
+                  prompt: promptText,
+                  image: refList.slice(0, 4),
+                  response_format: 'url',
+                  size: ratio.size
+                }
+              : {
+                  model,
+                  prompt: promptText,
+                  ...(refList.length ? { image: refList } : {}),
+                  size: ratio.size
+                }
+        const res = await fetch(`${base}/images/generations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          body: JSON.stringify(body)
+        })
+        const text = await res.text()
+        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
+        const data = JSON.parse(text)
+        output = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || ''
+        if (output && !output.startsWith('http') && !output.startsWith('data:')) {
+          output = `data:image/png;base64,${output}`
+        }
       }
+
       if (output.startsWith('http') || output.startsWith('data:')) {
         setResult(output)
         setStatus({ text: '生成完成', tone: 'ok' })
       } else {
-        setStatus({ text: `已返回响应 · ${text.slice(0, 180)}`, tone: 'neutral' })
+        setStatus({ text: '响应里没有图像数据', tone: 'err' })
       }
     } catch (err) {
-      setStatus({ text: `请求失败 · ${err instanceof Error ? err.message : String(err)}`, tone: 'err' })
+      setStatus({ text: err instanceof Error ? err.message : `请求失败 · ${String(err)}`, tone: 'err' })
     } finally {
       setBusy(false)
     }
@@ -508,8 +651,8 @@ function App() {
 
   const activeProvider = providerMeta(settings.provider)
   const hasKey = settings.apiKey.trim().length > 0
-  const hasPose = Boolean(refs.pose)
-  const step2Done = activeProvider.refs ? hasPose : prompt.trim().length > 0
+  const hasRef = Boolean(refs.pose || refs.photo)
+  const step2Done = activeProvider.refs ? hasRef : prompt.trim().length > 0
   const ready = hasKey && step2Done
 
   const dismissGuide = () => {
@@ -531,7 +674,7 @@ function App() {
     if (!step2Done) {
       setMissing('pose')
       if (activeProvider.refs) {
-        setStatus({ text: '第二步：选择一个姿势（可打开姿势图库）', tone: 'err' })
+        setStatus({ text: '第二步：选一个姿势，或上传一张人物照片', tone: 'err' })
         setGalleryOpen('pose')
       } else {
         setStatus({ text: `第二步：${activeProvider.label} 只按文字画图，先写一段描述`, tone: 'err' })
@@ -549,7 +692,7 @@ function App() {
       ? '第 1 步 · 填写 API Key'
       : !step2Done
         ? activeProvider.refs
-          ? '第 2 步 · 选择姿势'
+          ? '第 2 步 · 选姿势 / 传照片'
           : '第 2 步 · 写描述'
         : '生成图像'
 
@@ -620,10 +763,10 @@ function App() {
               <button
                 key={key}
                 className={`rail-btn ${active === key ? 'is-active' : ''}`}
-                data-tip={`${REF_META[key].name}参考${refs[key] ? ' · 已载入' : ''}`}
+                data-tip={`${REF_META[key].name}${refs[key] ? ' · 已载入' : ''}`}
                 onClick={() => setActive(key)}
               >
-                <Icon name={key === 'pose' ? 'pose' : key === 'costume' ? 'shirt' : 'face'} />
+                <Icon name={key === 'photo' ? 'image' : key === 'pose' ? 'pose' : key === 'costume' ? 'shirt' : 'face'} />
                 {refs[key] && <span className="rail-badge" />}
               </button>
             ))}
@@ -686,7 +829,7 @@ function App() {
                 </li>
                 <li className={step2Done ? 'is-done' : ''}>
                   <span className="hint-num">{step2Done ? <Icon name="check" size={10} /> : 2}</span>
-                  {activeProvider.refs ? '选一个姿势' : '写一段描述'}
+                  {activeProvider.refs ? '选姿势 / 传照片' : '写一段描述'}
                   {step2Done ? <em>{activeProvider.refs ? '已选' : '已写'}</em> : <em>必填</em>}
                 </li>
                 <li className={ready ? '' : 'is-muted'}>
@@ -785,12 +928,19 @@ function App() {
                 placeholder={`粘贴 ${activeProvider.label} 的 API Key`}
               />
               {activeProvider.keyUrl && (
-                <a className="key-link" href={activeProvider.keyUrl} target="_blank" rel="noreferrer" title="去申请">
+                <button className="key-link" onClick={() => openExternal(activeProvider.keyUrl)} title={`申请入口 · ${activeProvider.keyHint}`}>
                   <Icon name="download" size={13} />
-                </a>
+                </button>
               )}
             </div>
-            <p className="help">{activeProvider.keyHint} · 只存在本机，自动保存</p>
+            <p className="help">
+              {activeProvider.keyUrl && (
+                <button className="key-jump" onClick={() => openExternal(activeProvider.keyUrl)}>
+                  一键前往申请页 ↗
+                </button>
+              )}
+              {activeProvider.keyHint} · 只存在本机，自动保存
+            </p>
           </div>
 
           <div className="section">
@@ -817,7 +967,7 @@ function App() {
             <div className="section-head">
               <span>② 参考图</span>
               <span className="section-count">
-                {activeProvider.refs ? '姿势必选 · 服装/人脸可选' : '当前服务商不支持参考图'}
+                {activeProvider.refs ? '照片与人脸二选一 · 姿势、服装可叠加' : '当前服务商不支持参考图'}
               </span>
             </div>
             {(Object.keys(REF_META) as RefKey[]).map((key) => (
@@ -849,16 +999,18 @@ function App() {
                   </span>
                 </div>
                 <div className="ref-actions">
-                  <button
-                    className="mini-btn"
-                    title={`${REF_META[key].name}图库`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setGalleryOpen(key)
-                    }}
-                  >
-                    <Icon name="library" size={14} />
-                  </button>
+                  {CATALOGS[key] && (
+                    <button
+                      className="mini-btn"
+                      title={`${REF_META[key].name}图库`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setGalleryOpen(key)
+                      }}
+                    >
+                      <Icon name="library" size={14} />
+                    </button>
+                  )}
                   <label className="mini-btn" title={refs[key] ? '替换' : '载入'}>
                     <Icon name={refs[key] ? 'image' : 'plus'} size={14} />
                     <input
@@ -1000,7 +1152,7 @@ function App() {
         <div className="overlay" onClick={() => setPreview(null)}>
           <div className="preview-card" onClick={(e) => e.stopPropagation()}>
             <button className="preview-close" onClick={() => setPreview(null)} title="关闭" aria-label="关闭">
-              <Icon name="x" size={18} />
+              <Icon name="close" size={18} />
             </button>
             <div className="preview-body">
               <img src={preview.src} alt={preview.title} />
@@ -1031,8 +1183,8 @@ function App() {
               <li>
                 <span className="guide-num">2</span>
                 <div>
-                  <b>选一个姿势</b>
-                  <p>点“打开姿势图库”，从 {POSE_CATALOG.poses.length} 张线稿里挑一张，再选好机位（正面/侧面…）。服装和人脸可选。</p>
+                  <b>选姿势或传照片</b>
+                  <p>从姿势图库挑一张线稿，或直接上传一张人物照片——两者给一个就能出图；服装和人脸可选，加了更像。</p>
                 </div>
               </li>
               <li>
@@ -1097,6 +1249,8 @@ function RefGallery({
   const [category, setCategory] = useState('全部')
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<{ item: GalleryItem; angleId: string } | null>(null)
+  const [dl, setDl] = useState<{ total: number; done: number; failed: number; active: boolean } | null>(null)
+  const [dlErr, setDlErr] = useState('')
 
   const systemItems = useMemo(
     () => catalog.poses.filter((p) => (catalog.systems.length > 1 ? p.systemId === systemId : true)),
@@ -1140,11 +1294,44 @@ function RefGallery({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useEffect(() => {
+    if (!dl?.active) return
+    const t = setInterval(async () => {
+      try {
+        const s = await invoke<{ total: number; done: number; failed: number; active: boolean }>(
+          'prefetch_status'
+        )
+        setDl(s)
+        if (!s.active) clearInterval(t)
+      } catch {
+        // ignore polling errors
+      }
+    }, 700)
+    return () => clearInterval(t)
+  }, [dl?.active])
+
+  // 把该图库的全部缩略图下载进本机 SQLite（gallery.db），离线可浏览
+  const startOffline = async () => {
+    if (dl?.active) return
+    setDlErr('')
+    const urls = catalog.origin
+      ? catalog.poses.flatMap((p) => (p.views[0]?.thumb ? [assetUrl(catalog.origin, p.views[0].thumb)] : []))
+      : []
+    try {
+      const missing = await invoke<number>('prefetch_start', { urls, kind })
+      setDl(missing > 0 ? { total: missing, done: 0, failed: 0, active: true } : { total: 0, done: 0, failed: 0, active: false })
+    } catch (e) {
+      setDl(null)
+      setDlErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const dlDone = dl && !dl.active && dl.failed === 0 && (dl.total === 0 || dl.done >= dl.total)
   const title = kind === 'pose' ? '姿势图库' : kind === 'costume' ? '服装图库' : '人脸图库'
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="gallery" onClick={(e) => e.stopPropagation()}>
+      <div className="gallery" data-kind={kind} onClick={(e) => e.stopPropagation()}>
         <header className="gallery-head">
           <div className="gallery-title">
             <Icon name="library" size={18} />
@@ -1154,6 +1341,13 @@ function RefGallery({
             </span>
           </div>
           <div className="gallery-tools">
+            <button
+              className={`dl-btn ${dlDone ? 'is-done' : ''} ${dlErr ? 'is-error' : ''}`}
+              onClick={startOffline}
+              title={dlErr ? `出错了：${dlErr}` : '把该图库全部缩略图下载进本机数据库 gallery.db，离线也能浏览'}
+            >
+              {dl?.active ? `存本地 ${dl.done}/${dl.total}` : dlDone ? '已存本地 ✓' : '缩略图存本地'}
+            </button>
             <label className="search">
               <Icon name="search" size={15} />
               <input
@@ -1164,12 +1358,12 @@ function RefGallery({
               />
             </label>
             <button className="icon-btn" onClick={onClose} title="关闭">
-              <Icon name="x" size={18} />
+              <Icon name="close" size={18} />
             </button>
           </div>
         </header>
 
-        <div className="gallery-body">
+        <div className={`gallery-body ${catalog.systems.length > 1 ? '' : 'is-single'}`}>
           {catalog.systems.length > 1 && (
             <nav className="gallery-side">
               {catalog.systems.map((s) => (
@@ -1216,7 +1410,7 @@ function RefGallery({
                     title={`${item.code} ${item.name}`}
                   >
                     <span className="pose-thumb">
-                      <GalleryImage view={view} origin={catalog.origin} alt={item.name} />
+                      <GalleryImage view={view} origin={catalog.origin} alt={item.name} kind={kind} />
                     </span>
                     <span className="pose-caption">
                       <span className="pose-code">{item.code}</span>
@@ -1277,8 +1471,63 @@ function RefGallery({
   )
 }
 
-function GalleryImage({ view, origin, alt }: { view: GalleryView; origin: string; alt: string }) {
+const thumbMem = new Map<string, string>()
+
+// resolve a remote asset to a local copy stored in the SQLite gallery DB
+// (remote has no CORS headers, so the webview cannot fetch it directly)
+async function cachedSrc(url: string, kind: string): Promise<string> {
+  const hit = thumbMem.get(url)
+  if (hit) return hit
+  const uri = await invoke<string>('image_data_uri', { url, kind })
+  thumbMem.set(url, uri)
+  return uri
+}
+
+function GalleryImage({
+  view,
+  origin,
+  alt,
+  kind
+}: {
+  view: GalleryView
+  origin: string
+  alt: string
+  kind: RefKey
+}) {
+  const remote = assetUrl(origin, view.thumb)
+  const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
+  const holderRef = useRef<HTMLSpanElement | null>(null)
+
+  useEffect(() => {
+    setSrc('')
+    setFailed(false)
+    let cancelled = false
+    const el = holderRef.current
+    if (!el || !remote) return
+    // lazy: only hit the cache/network once the card is near the viewport
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect()
+          cachedSrc(remote, kind)
+            .then((s) => {
+              if (!cancelled) setSrc(s)
+            })
+            .catch(() => {
+              if (!cancelled) setSrc(remote)
+            })
+        }
+      },
+      { rootMargin: '360px' }
+    )
+    io.observe(el)
+    return () => {
+      cancelled = true
+      io.disconnect()
+    }
+  }, [remote, kind])
+
   if (failed) {
     return (
       <span className="pose-fallback">
@@ -1287,13 +1536,20 @@ function GalleryImage({ view, origin, alt }: { view: GalleryView; origin: string
     )
   }
   return (
-    <img
-      src={assetUrl(origin, view.thumb)}
-      alt={alt}
-      loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
-    />
+    <span className="pose-thumb-media" ref={holderRef}>
+      {src ? (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          onError={() => {
+            if (src !== remote) setSrc(remote)
+            else setFailed(true)
+          }}
+        />
+      ) : null}
+    </span>
   )
 }
 

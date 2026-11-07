@@ -919,12 +919,31 @@ select.input {
   border: 1px solid var(--line-2);
   color: var(--text-dim);
   text-decoration: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
 }
 
 .key-link:hover {
   background: var(--panel-2);
   color: var(--text);
   border-color: var(--text-faint);
+}
+
+.key-jump {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent, #5b8cff);
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.key-jump:hover {
+  color: var(--text);
 }
 
 .ratio-row {
@@ -1277,10 +1296,46 @@ select.input {
 }
 
 .gallery-title {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--text-dim);
+}
+
+.gallery-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dl-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-btn:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+  background: var(--panel-2);
+}
+
+.dl-btn.is-done {
+  color: #7dd3a0;
+  border-color: rgba(125, 211, 160, 0.4);
+}
+
+.dl-btn.is-error {
+  color: #e07a7a;
 }
 
 .gallery-title h2 {
@@ -1335,6 +1390,11 @@ select.input {
   min-height: 0;
   display: grid;
   grid-template-columns: 168px minmax(0, 1fr);
+}
+
+/* 无侧栏（单 system）时不给侧栏留列，避免右侧大片空白 */
+.gallery-body.is-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .gallery-side {
@@ -1430,8 +1490,17 @@ select.input {
   padding: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  /* auto rows collapse to min-content when many items overflow a
+     fixed-height grid, squashing aspect-ratio thumbs to a sliver */
+  grid-auto-rows: max-content;
   gap: 10px;
   align-content: start;
+}
+
+.pose-thumb-media {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .pose-card {
@@ -1479,6 +1548,13 @@ select.input {
   min-height: 0;
   object-fit: contain;
   object-position: center;
+}
+
+/* 照片类参考（服装 2:3 / 人脸 4:5）铺满卡片框，姿势线稿保持完整显示 */
+.gallery[data-kind='costume'] .pose-thumb img,
+.gallery[data-kind='face'] .pose-thumb img {
+  object-fit: cover;
+}
 }
 
 .pose-fallback {
