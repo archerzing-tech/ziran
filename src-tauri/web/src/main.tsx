@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import catalogJson from './data/poses.json'
+import poseCatalogJson from './data/poses.json'
+import costumeCatalogJson from './data/costumes.json'
+import faceCatalogJson from './data/faces.json'
 
 type Settings = {
   apiKey: string
@@ -119,28 +121,48 @@ const REF_META: Record<RefKey, { name: string; hint: string }> = {
 }
 const ARTBOARD = 512
 
-type PoseView = { id: string; angle: string; angleId: string; thumb: string; full: string }
-type Pose = { id: string; systemId: string; system: string; code: string; category: string; name: string; views: PoseView[] }
-type Catalog = {
+type GalleryView = { id: string; angle: string; angleId: string; thumb: string; full: string }
+type GalleryItem = { id: string; systemId: string; system: string; code: string; category: string; name: string; views: GalleryView[] }
+type GalleryCatalog = {
   origin: string
   source: string
   attribution: string
   systems: { id: string; name: string; poseCount: number }[]
-  poses: Pose[]
+  poses: GalleryItem[]
+}
+type RefMeta = { name: string; code: string; angle: string }
+
+const POSE_CATALOG = poseCatalogJson as GalleryCatalog
+const COSTUME_CATALOG = costumeCatalogJson as GalleryCatalog
+const FACE_CATALOG = faceCatalogJson as GalleryCatalog
+const CATALOGS: Record<RefKey, GalleryCatalog> = {
+  pose: POSE_CATALOG,
+  costume: COSTUME_CATALOG,
+  face: FACE_CATALOG
 }
 
-const CATALOG = catalogJson as Catalog
-const POSE_ORIGIN = CATALOG.origin.replace(/\/$/, '')
-const poseAsset = (path: string) => `${POSE_ORIGIN}/${path}`
+const assetUrl = (origin: string, path: string) => {
+  if (!path) return ''
+  if (/^(data:|https?:|blob:)/.test(path)) return path
+  const base = (origin || '').replace(/\/$/, '')
+  return base ? `${base}/${path}` : path
+}
 
-function loadPoseMeta() {
+function loadRefMeta() {
+  const out: Record<RefKey, RefMeta | null> = { pose: null, costume: null, face: null }
   try {
-    return JSON.parse(localStorage.getItem(`${STORAGE_KEY}.pose`) || 'null') as
-      | { name: string; code: string; angle: string }
-      | null
-  } catch {
-    return null
-  }
+    const legacy = JSON.parse(localStorage.getItem(`${STORAGE_KEY}.pose`) || 'null') as RefMeta | null
+    if (legacy) out.pose = legacy
+  } catch {}
+  try {
+    const all = JSON.parse(localStorage.getItem(`${STORAGE_KEY}.refmeta`) || 'null') as Partial<Record<RefKey, RefMeta>> | null
+    if (all) {
+      if (all.pose) out.pose = all.pose
+      if (all.costume) out.costume = all.costume
+      if (all.face) out.face = all.face
+    }
+  } catch {}
+  return out
 }
 
 function loadSettings(): Settings {
@@ -298,8 +320,8 @@ function App() {
   const [result, setResult] = useState('')
   const [status, setStatus] = useState<{ text: string; tone: Tone }>({ text: '就绪', tone: 'neutral' })
   const [busy, setBusy] = useState(false)
-  const [poseMeta, setPoseMeta] = useState<{ name: string; code: string; angle: string } | null>(loadPoseMeta)
-  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [refMeta, setRefMeta] = useState<Record<RefKey, RefMeta | null>>(loadRefMeta)
+  const [galleryOpen, setGalleryOpen] = useState<RefKey | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [showGuide, setShowGuide] = useState(() => {
     try {
@@ -327,12 +349,13 @@ function App() {
 
   useEffect(() => {
     try {
-      if (poseMeta) localStorage.setItem(`${STORAGE_KEY}.pose`, JSON.stringify(poseMeta))
+      localStorage.setItem(`${STORAGE_KEY}.refmeta`, JSON.stringify(refMeta))
+      if (refMeta.pose) localStorage.setItem(`${STORAGE_KEY}.pose`, JSON.stringify(refMeta.pose))
       else localStorage.removeItem(`${STORAGE_KEY}.pose`)
     } catch {
       // ignore storage failures
     }
-  }, [poseMeta])
+  }, [refMeta])
 
   const activeRatio = ratioMeta(settings.ratio)
   const boardScale = ARTBOARD / Math.max(activeRatio.w, activeRatio.h)
@@ -499,7 +522,7 @@ function App() {
       setMissing('pose')
       if (activeProvider.refs) {
         setStatus({ text: '第二步：选择一个姿势（可打开姿势图库）', tone: 'err' })
-        setGalleryOpen(true)
+        setGalleryOpen('pose')
       } else {
         setStatus({ text: `第二步：${activeProvider.label} 只按文字画图，先写一段描述`, tone: 'err' })
         promptRef.current?.focus()
@@ -527,8 +550,8 @@ function App() {
   const canvasLabel = result
     ? '生成结果'
     : activeRef
-      ? active === 'pose' && poseMeta
-        ? `姿势 · ${poseMeta.code} ${poseMeta.name}`
+      ? active === 'pose' && refMeta.pose
+        ? `姿势 · ${refMeta.pose.code} ${refMeta.pose.name}`
         : `${REF_META[active].name}参考`
       : '空画板'
 
@@ -595,7 +618,7 @@ function App() {
               </button>
             ))}
             <span className="rail-sep" />
-            <button className="rail-btn" data-tip="姿势图库" onClick={() => setGalleryOpen(true)}>
+            <button className="rail-btn" data-tip="姿势图库" onClick={() => setGalleryOpen('pose')}>
               <Icon name="library" />
             </button>
             <button
@@ -663,7 +686,7 @@ function App() {
               </ol>
               <button
                 className="ghost-btn"
-                onClick={() => (hasKey ? setGalleryOpen(true) : keyRef.current?.focus())}
+                onClick={() => (hasKey ? setGalleryOpen('pose') : keyRef.current?.focus())}
               >
                 <Icon name={hasKey ? 'library' : 'key'} size={14} />
                 {hasKey ? '打开姿势图库' : '去填写 API Key'}
@@ -699,7 +722,7 @@ function App() {
             <span className={`step-line ${hasKey ? 'is-done' : ''}`} />
             <button
               className={`step ${!hasKey ? '' : step2Done ? 'is-done' : 'is-current'}`}
-              onClick={() => (activeProvider.refs ? setGalleryOpen(true) : promptRef.current?.focus())}
+              onClick={() => (activeProvider.refs ? setGalleryOpen('pose') : promptRef.current?.focus())}
             >
               <span className="step-num">{step2Done ? <Icon name="check" size={11} /> : 2}</span>
               <span className="step-text">{activeProvider.refs ? '选姿势' : '写描述'}</span>
@@ -799,26 +822,24 @@ function App() {
                 <div className="ref-meta">
                   <span className="ref-name">{REF_META[key].name}</span>
                   <span className="ref-hint">
-                    {key === 'pose' && poseMeta
-                      ? `${poseMeta.name} · ${poseMeta.angle}`
+                    {refMeta[key]
+                      ? `${refMeta[key]!.name}${refMeta[key]!.angle && refMeta[key]!.angle !== '参考' ? ` · ${refMeta[key]!.angle}` : ''}`
                       : refs[key]
                         ? '已载入'
                         : REF_META[key].hint}
                   </span>
                 </div>
                 <div className="ref-actions">
-                  {key === 'pose' && (
-                    <button
-                      className="mini-btn"
-                      title="姿势图库"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setGalleryOpen(true)
-                      }}
-                    >
-                      <Icon name="library" size={14} />
-                    </button>
-                  )}
+                  <button
+                    className="mini-btn"
+                    title={`${REF_META[key].name}图库`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setGalleryOpen(key)
+                    }}
+                  >
+                    <Icon name="library" size={14} />
+                  </button>
                   <label className="mini-btn" title={refs[key] ? '替换' : '载入'}>
                     <Icon name={refs[key] ? 'image' : 'plus'} size={14} />
                     <input
@@ -845,10 +866,20 @@ function App() {
                 </div>
               </div>
             ))}
-            <button className="ghost-btn wide" onClick={() => setGalleryOpen(true)}>
-              <Icon name="library" size={14} />
-              打开姿势图库 · {CATALOG.poses.length} 个姿势
-            </button>
+            <div className="gallery-links">
+              <button className="ghost-btn" onClick={() => setGalleryOpen('pose')}>
+                <Icon name="library" size={14} />
+                姿势图库 · {POSE_CATALOG.poses.length}
+              </button>
+              <button className="ghost-btn" onClick={() => setGalleryOpen('costume')}>
+                <Icon name="shirt" size={14} />
+                服装图库 · {COSTUME_CATALOG.poses.length}
+              </button>
+              <button className="ghost-btn" onClick={() => setGalleryOpen('face')}>
+                <Icon name="face" size={14} />
+                人脸图库 · {FACE_CATALOG.poses.length}
+              </button>
+            </div>
           </div>
 
           <div className="section">
@@ -929,16 +960,19 @@ function App() {
       </div>
 
       {galleryOpen && (
-        <PoseGallery
-          activeId={poseMeta?.code ?? ''}
-          onClose={() => setGalleryOpen(false)}
-          onApply={(pose, view) => {
-            setRef('pose', poseAsset(view.full))
-            setPoseMeta({ name: pose.name, code: pose.code, angle: view.angle })
+        <RefGallery
+          kind={galleryOpen}
+          catalog={CATALOGS[galleryOpen]}
+          activeCode={refMeta[galleryOpen]?.code ?? ''}
+          onClose={() => setGalleryOpen(null)}
+          onApply={(item, view) => {
+            const kind = galleryOpen
+            setRef(kind, assetUrl(CATALOGS[kind].origin, view.full))
+            setRefMeta((prev) => ({ ...prev, [kind]: { name: item.name, code: item.code, angle: view.angle } }))
             setResult('')
             setMissing(null)
-            setGalleryOpen(false)
-            setStatus({ text: `已载入姿势 ${pose.code} ${pose.name} · ${view.angle}`, tone: 'ok' })
+            setGalleryOpen(null)
+            setStatus({ text: `已载入${REF_META[kind].name} ${item.code} ${item.name}${view.angle && view.angle !== '参考' ? ` · ${view.angle}` : ''}`, tone: 'ok' })
           }}
         />
       )}
@@ -965,7 +999,7 @@ function App() {
                 <span className="guide-num">2</span>
                 <div>
                   <b>选一个姿势</b>
-                  <p>点“打开姿势图库”，从 {CATALOG.poses.length} 张线稿里挑一张，再选好机位（正面/侧面…）。服装和人脸可选。</p>
+                  <p>点“打开姿势图库”，从 {POSE_CATALOG.poses.length} 张线稿里挑一张，再选好机位（正面/侧面…）。服装和人脸可选。</p>
                 </div>
               </li>
               <li>
@@ -1013,90 +1047,115 @@ function App() {
   )
 }
 
-function PoseGallery({
-  activeId,
+function RefGallery({
+  kind,
+  catalog,
+  activeCode,
   onClose,
   onApply
 }: {
-  activeId: string
+  kind: RefKey
+  catalog: GalleryCatalog
+  activeCode: string
   onClose: () => void
-  onApply: (pose: Pose, view: PoseView) => void
+  onApply: (item: GalleryItem, view: GalleryView) => void
 }) {
-  const [systemId, setSystemId] = useState(CATALOG.systems[0]?.id ?? 'full')
+  const [systemId, setSystemId] = useState(catalog.systems[0]?.id ?? catalog.poses[0]?.systemId ?? '')
   const [category, setCategory] = useState('全部')
   const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState<{ pose: Pose; angleId: string } | null>(null)
+  const [picked, setPicked] = useState<{ item: GalleryItem; angleId: string } | null>(null)
 
-  const systemPoses = useMemo(
-    () => CATALOG.poses.filter((p) => p.systemId === systemId),
-    [systemId]
+  const systemItems = useMemo(
+    () => catalog.poses.filter((p) => (catalog.systems.length > 1 ? p.systemId === systemId : true)),
+    [catalog, systemId]
   )
 
   const categories = useMemo(() => {
-    const set = new Set(systemPoses.map((p) => p.category))
+    const set = new Set(systemItems.map((p) => p.category))
     return ['全部', ...Array.from(set)]
-  }, [systemPoses])
+  }, [systemItems])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return systemPoses.filter((p) => {
+    return systemItems.filter((p) => {
       if (category !== '全部' && p.category !== category) return false
       if (!q) return true
       return (
-        p.name.toLowerCase().includes(q) ||
         p.code.toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q)
       )
     })
-  }, [systemPoses, category, query])
+  }, [systemItems, category, query])
 
-  const selected = picked
-    ? { pose: picked.pose, view: picked.pose.views.find((v) => v.angleId === picked.angleId) ?? picked.pose.views[0] }
-    : null
+  useEffect(() => {
+    if (!picked) return
+    if (!visible.some((p) => p.id === picked.item.id)) setPicked(null)
+  }, [visible, picked])
+
+  const selected = useMemo(() => {
+    if (!picked) return null
+    const view = picked.item.views.find((v) => v.angleId === picked.angleId) ?? picked.item.views[0]
+    return view ? { item: picked.item, view } : null
+  }, [picked])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const title = kind === 'pose' ? '姿势图库' : kind === 'costume' ? '服装图库' : '人脸图库'
 
   return (
     <div className="overlay" onClick={onClose}>
       <div className="gallery" onClick={(e) => e.stopPropagation()}>
         <header className="gallery-head">
           <div className="gallery-title">
-            <Icon name="library" size={16} />
-            <h2>姿势图库</h2>
+            <Icon name="library" size={18} />
+            <h2>{title}</h2>
             <span className="gallery-count">
-              {visible.length} / {systemPoses.length}
+              {catalog.poses.length} 张 · {REF_META[kind].name}参考
             </span>
           </div>
-          <label className="search">
-            <Icon name="search" size={14} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索编号 / 名称 / 分类"
-            />
-          </label>
-          <button className="icon-btn" onClick={onClose} title="关闭">
-            <Icon name="close" size={16} />
-          </button>
+          <div className="gallery-tools">
+            <label className="search">
+              <Icon name="search" size={15} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索编号、名称、分类"
+                autoFocus
+              />
+            </label>
+            <button className="icon-btn" onClick={onClose} title="关闭">
+              <Icon name="x" size={18} />
+            </button>
+          </div>
         </header>
 
         <div className="gallery-body">
-          <nav className="gallery-side">
-            <span className="side-label">系统</span>
-            {CATALOG.systems.map((s) => (
-              <button
-                key={s.id}
-                className={`side-item ${systemId === s.id ? 'is-active' : ''}`}
-                onClick={() => {
-                  setSystemId(s.id)
-                  setCategory('全部')
-                }}
-              >
-                <span>{s.name}</span>
-                <span className="side-count">
-                  {CATALOG.poses.filter((p) => p.systemId === s.id).length}
-                </span>
-              </button>
-            ))}
-          </nav>
+          {catalog.systems.length > 1 && (
+            <nav className="gallery-side">
+              {catalog.systems.map((s) => (
+                <button
+                  key={s.id}
+                  className={`side-item ${systemId === s.id ? 'is-active' : ''}`}
+                  onClick={() => {
+                    setSystemId(s.id)
+                    setCategory('全部')
+                  }}
+                >
+                  <span className="side-name">{s.name}</span>
+                  <span className="side-count">
+                    {catalog.poses.filter((p) => p.systemId === s.id).length}
+                  </span>
+                </button>
+              ))}
+            </nav>
+          )}
 
           <div className="gallery-main">
             <div className="chips">
@@ -1112,29 +1171,29 @@ function PoseGallery({
             </div>
 
             <div className="pose-grid">
-              {visible.map((pose) => {
-                const view = pose.views[0]
-                const isPicked = picked?.pose.id === pose.id
+              {visible.map((item) => {
+                const view = item.views[0]
+                const isPicked = picked?.item.id === item.id
                 return (
                   <button
-                    key={pose.id}
+                    key={item.id}
                     className={`pose-card ${isPicked ? 'is-picked' : ''}`}
-                    onClick={() => setPicked({ pose, angleId: view.angleId })}
-                    onDoubleClick={() => onApply(pose, view)}
-                    title={`${pose.code} ${pose.name}`}
+                    onClick={() => setPicked({ item, angleId: view.angleId })}
+                    onDoubleClick={() => onApply(item, view)}
+                    title={`${item.code} ${item.name}`}
                   >
                     <span className="pose-thumb">
-                      <PoseImage view={view} alt={pose.name} />
+                      <GalleryImage view={view} origin={catalog.origin} alt={item.name} />
                     </span>
                     <span className="pose-caption">
-                      <span className="pose-code">{pose.code}</span>
-                      <span className="pose-name">{pose.name}</span>
+                      <span className="pose-code">{item.code}</span>
+                      <span className="pose-name">{item.name}</span>
                     </span>
-                    {activeId === pose.code && <span className="pose-badge">当前</span>}
+                    {activeCode === item.code && <span className="pose-badge">当前</span>}
                   </button>
                 )
               })}
-              {!visible.length && <p className="gallery-empty">没有匹配的姿势</p>}
+              {!visible.length && <p className="gallery-empty">没有匹配的内容</p>}
             </div>
           </div>
         </div>
@@ -1144,31 +1203,37 @@ function PoseGallery({
             {selected ? (
               <>
                 <span className="foot-name">
-                  {selected.pose.code} · {selected.pose.name}
+                  {selected.item.code} · {selected.item.name}
                 </span>
-                <div className="angles">
-                  {selected.pose.views.map((v) => (
-                    <button
-                      key={v.angleId}
-                      className={`angle ${selected.view.angleId === v.angleId ? 'is-active' : ''}`}
-                      onClick={() => setPicked({ pose: selected.pose, angleId: v.angleId })}
-                    >
-                      {v.angle}
-                    </button>
-                  ))}
-                </div>
+                {selected.item.views.length > 1 && (
+                  <div className="angles">
+                    {selected.item.views.map((v) => (
+                      <button
+                        key={v.angleId}
+                        className={`angle ${selected.view.angleId === v.angleId ? 'is-active' : ''}`}
+                        onClick={() => setPicked({ item: selected.item, angleId: v.angleId })}
+                      >
+                        {v.angle}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
-              <span className="foot-hint">选择一张姿势线稿 · 双击直接载入</span>
+              <span className="foot-hint">选择一项 · 双击直接载入{kind === 'pose' ? '，再选机位' : ''}</span>
             )}
           </div>
-          <a className="foot-credit" href={CATALOG.source} target="_blank" rel="noreferrer">
-            姿势数据 · 图源归原作者所有
-          </a>
+          {catalog.source ? (
+            <a className="foot-credit" href={catalog.source} target="_blank" rel="noreferrer">
+              {catalog.attribution || '图源归原作者所有'}
+            </a>
+          ) : (
+            <span className="foot-credit">{catalog.attribution || ''}</span>
+          )}
           <button
             className="primary gallery-apply"
             disabled={!selected}
-            onClick={() => selected && onApply(selected.pose, selected.view)}
+            onClick={() => selected && onApply(selected.item, selected.view)}
           >
             <Icon name="check" size={15} />
             载入画板
@@ -1179,7 +1244,7 @@ function PoseGallery({
   )
 }
 
-function PoseImage({ view, alt }: { view: PoseView; alt: string }) {
+function GalleryImage({ view, origin, alt }: { view: GalleryView; origin: string; alt: string }) {
   const [failed, setFailed] = useState(false)
   if (failed) {
     return (
@@ -1190,7 +1255,7 @@ function PoseImage({ view, alt }: { view: PoseView; alt: string }) {
   }
   return (
     <img
-      src={poseAsset(view.thumb)}
+      src={assetUrl(origin, view.thumb)}
       alt={alt}
       loading="lazy"
       decoding="async"

@@ -502,7 +502,7 @@ textarea {
 .ref-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .ref-meta {
@@ -1006,6 +1006,22 @@ select.input {
   margin-top: 10px;
   height: 30px;
   border-style: dashed;
+}
+
+.gallery-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.gallery-links .ghost-btn {
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
 }
 
 .collapse-head {
