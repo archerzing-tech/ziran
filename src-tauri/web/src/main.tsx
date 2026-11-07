@@ -20,7 +20,7 @@ type Tone = 'neutral' | 'busy' | 'ok' | 'err'
 
 type ProviderShape = 'ark' | 'siliconflow' | 'openai' | 'gptimage' | 'gemini' | 'minimax'
 
-const PROVIDERS: {
+type ProviderDef = {
   value: string
   label: string
   sub: string
@@ -31,7 +31,14 @@ const PROVIDERS: {
   keyHint: string
   refs: boolean
   shape: ProviderShape
-}[] = [
+}
+
+const PROVIDER_SHAPES: ProviderShape[] = ['ark', 'siliconflow', 'openai', 'gptimage', 'gemini', 'minimax']
+
+// 内置默认供应商，同时是 providers.json 的种子内容：
+// 配置文件在应用数据目录（首次启动写入），用户可直接编辑增删改，
+// 界面里「编辑配置文件」可打开所在文件夹，「重新加载」即时生效。
+const DEFAULT_PROVIDERS: ProviderDef[] = [
   {
     value: 'ark',
     label: 'Seedream',
@@ -126,8 +133,35 @@ const RATIOS = [
   { id: '16:9', label: '16:9', w: 16, h: 9, size: '1280x720' }
 ]
 
-const providerMeta = (id: string) => PROVIDERS.find((p) => p.value === id) ?? PROVIDERS[0]
 const ratioMeta = (id: string) => RATIOS.find((r) => r.id === id) ?? RATIOS[0]
+
+// providers.json 内容 → 合法供应商列表：字段缺失给默认值，value 重复/非法的条目丢弃
+function sanitizeProviders(raw: unknown): ProviderDef[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: ProviderDef[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const p = item as Partial<ProviderDef>
+    if (typeof p.value !== 'string' || !p.value.trim()) continue
+    if (typeof p.label !== 'string' || !p.label.trim()) continue
+    if (seen.has(p.value)) continue
+    seen.add(p.value)
+    out.push({
+      value: p.value,
+      label: p.label,
+      sub: typeof p.sub === 'string' ? p.sub : '',
+      model: typeof p.model === 'string' ? p.model : '',
+      baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl : '',
+      desc: typeof p.desc === 'string' ? p.desc : '',
+      keyUrl: typeof p.keyUrl === 'string' ? p.keyUrl : '',
+      keyHint: typeof p.keyHint === 'string' ? p.keyHint : '',
+      refs: p.refs === true,
+      shape: PROVIDER_SHAPES.includes(p.shape as ProviderShape) ? (p.shape as ProviderShape) : 'openai'
+    })
+  }
+  return out
+}
 
 // 参考图 → 本地 SQLite 库中的 { mime, base64 }（首次取用自动下载入库）
 async function refDataUri(url: string): Promise<{ mime: string; data: string }> {
@@ -241,7 +275,7 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULT_SETTINGS
     const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings
-    const known = PROVIDERS.some((p) => p.value === parsed.provider)
+    const known = DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
     if (!known) parsed.provider = DEFAULT_SETTINGS.provider
     if (!RATIOS.some((r) => r.id === parsed.ratio)) parsed.ratio = DEFAULT_SETTINGS.ratio
     return parsed
@@ -385,6 +419,9 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 
 function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings)
+  const [providers, setProviders] = useState<ProviderDef[]>(DEFAULT_PROVIDERS)
+  const [providersPath, setProvidersPath] = useState('')
+  const providerMeta = (id: string) => providers.find((p) => p.value === id) ?? providers[0]
   const [refs, setRefs] = useState<Refs>(EMPTY_REFS)
   const [active, setActive] = useState<RefKey>('pose')
   const [prompt, setPrompt] = useState('')
@@ -429,6 +466,42 @@ function App() {
       // ignore storage failures
     }
   }, [refMeta])
+
+  // 读 providers.json（没有就写入内置默认），失败时静默沿用内置默认
+  const applyProvidersFile = async (announce: boolean) => {
+    try {
+      const path = await invoke<string>('config_file_path', { name: 'providers.json' })
+      setProvidersPath(path)
+      const raw = await invoke<string | null>('read_config_file', { name: 'providers.json' })
+      if (raw == null) {
+        await invoke('write_config_file', {
+          name: 'providers.json',
+          contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2)
+        })
+        setProviders(DEFAULT_PROVIDERS)
+        if (announce) setStatus({ text: '已把默认供应商写入 providers.json，可直接编辑', tone: 'ok' })
+        return
+      }
+      const parsed = sanitizeProviders(JSON.parse(raw))
+      if (parsed.length) {
+        setProviders(parsed)
+        if (announce) setStatus({ text: `已从 providers.json 载入 ${parsed.length} 个供应商`, tone: 'ok' })
+        // 当前选中的供应商若已不存在，回落到列表第一个
+        if (!parsed.some((p) => p.value === settings.provider)) {
+          const first = parsed[0]
+          update({ provider: first.value, model: first.model, baseUrl: first.baseUrl })
+        }
+      } else if (announce) {
+        setStatus({ text: 'providers.json 里没有有效条目，已沿用内置默认', tone: 'err' })
+      }
+    } catch {
+      // 纯浏览器开发预览没有后端：保持内置默认
+    }
+  }
+  useEffect(() => {
+    void applyProvidersFile(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const activeRatio = ratioMeta(settings.ratio)
   // 画板随当前显示图片的真实比例自适应，避免参考图/成图留黑边；空板时用所选画幅比例
@@ -952,7 +1025,7 @@ function App() {
             </div>
 
             <div className="provider-grid">
-              {PROVIDERS.map((p) => (
+              {providers.map((p) => (
                 <button
                   key={p.value}
                   className={`provider ${settings.provider === p.value ? 'is-active' : ''}`}
@@ -990,6 +1063,36 @@ function App() {
               )}
               {activeProvider.keyHint} · 只存在本机，自动保存
             </p>
+            <div className="provider-config">
+              <span className="provider-config-label">供应商配置</span>
+              <button
+                className="key-jump"
+                title={providersPath || '打开配置文件夹'}
+                onClick={() =>
+                  invoke('open_config_dir')
+                    .then(() => setStatus({ text: '配置文件夹已在系统文件管理器打开，编辑 providers.json 保存即可', tone: 'ok' }))
+                    .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
+                }
+              >
+                编辑配置文件 ↗
+              </button>
+              <button className="key-jump" onClick={() => void applyProvidersFile(true)}>
+                重新加载
+              </button>
+              <button
+                className="key-jump"
+                onClick={() =>
+                  invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2) })
+                    .then(() => {
+                      setProviders(DEFAULT_PROVIDERS)
+                      setStatus({ text: '已恢复内置供应商默认配置', tone: 'ok' })
+                    })
+                    .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
+                }
+              >
+                恢复默认
+              </button>
+            </div>
           </div>
 
           <div className="section">
@@ -1086,20 +1189,6 @@ function App() {
                 </div>
               </div>
             ))}
-            <div className="gallery-links">
-              <button className="ghost-btn" onClick={() => setGalleryOpen('pose')}>
-                <Icon name="library" size={14} />
-                姿势图库 · {POSE_CATALOG.poses.length}
-              </button>
-              <button className="ghost-btn" onClick={() => setGalleryOpen('costume')}>
-                <Icon name="shirt" size={14} />
-                服装图库 · {COSTUME_CATALOG.poses.length}
-              </button>
-              <button className="ghost-btn" onClick={() => setGalleryOpen('face')}>
-                <Icon name="face" size={14} />
-                人脸图库 · {FACE_CATALOG.poses.length}
-              </button>
-            </div>
           </div>
 
           <div className="section">
@@ -1138,7 +1227,7 @@ function App() {
                 <div className="field">
                   <label>服务商</label>
                   <select className="input" value={settings.provider} onChange={(e) => switchProvider(e.target.value)}>
-                    {PROVIDERS.map((p) => (
+                    {providers.map((p) => (
                       <option key={p.value} value={p.value}>
                         {p.label}
                       </option>

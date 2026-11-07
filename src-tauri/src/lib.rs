@@ -227,6 +227,73 @@ fn prefetch_status(state: State<'_, Arc<PrefetchState>>) -> PrefetchStatus {
   }
 }
 
+/// 用户可编辑的配置文件白名单（放在应用数据目录，避免任意路径写入）
+const CONFIG_FILES: &[&str] = &["providers.json"];
+
+fn config_file_guard(name: &str) -> Result<(), String> {
+  if !CONFIG_FILES.contains(&name) {
+    return Err("unsupported config file".into());
+  }
+  Ok(())
+}
+
+/// 配置文件的完整路径（前端显示与打开用）
+#[tauri::command]
+fn config_file_path(app: tauri::AppHandle, name: String) -> Result<String, String> {
+  config_file_guard(&name)?;
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  Ok(dir.join(&name).to_string_lossy().into_owned())
+}
+
+/// 读取配置文件；不存在返回 None（由前端决定是否写入默认内容）
+#[tauri::command]
+fn read_config_file(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
+  config_file_guard(&name)?;
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  let path = dir.join(&name);
+  if !path.exists() {
+    return Ok(None);
+  }
+  fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_config_file(app: tauri::AppHandle, name: String, contents: String) -> Result<(), String> {
+  config_file_guard(&name)?;
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+  fs::write(dir.join(&name), contents).map_err(|e| e.to_string())
+}
+
+/// 在系统文件管理器里打开配置目录
+#[tauri::command]
+fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open")
+      .arg(&dir)
+      .spawn()
+      .map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "windows")]
+  {
+    std::process::Command::new("explorer")
+      .arg(&dir)
+      .spawn()
+      .map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "linux")]
+  {
+    std::process::Command::new("xdg-open")
+      .arg(&dir)
+      .spawn()
+      .map_err(|e| e.to_string())?;
+  }
+  Ok(())
+}
+
 /// Open a URL in the default system browser (API key application pages).
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
@@ -277,7 +344,11 @@ pub fn run() {
       image_data_uri,
       prefetch_start,
       prefetch_status,
-      open_url
+      open_url,
+      config_file_path,
+      read_config_file,
+      write_config_file,
+      open_config_dir
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");

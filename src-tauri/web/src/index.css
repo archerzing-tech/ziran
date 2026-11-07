@@ -1027,19 +1027,22 @@ select.input {
   border-style: dashed;
 }
 
-.gallery-links {
+.provider-config {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
   margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
-.gallery-links .ghost-btn {
-  flex: 1 1 auto;
-  justify-content: center;
-  min-width: 0;
-  height: 28px;
-  padding: 0 8px;
+.provider-config-label {
+  flex: none;
+}
+
+.provider-config .key-jump {
   font-size: 11px;
 }
 
