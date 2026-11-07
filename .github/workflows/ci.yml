@@ -1,0 +1,176 @@
+# 一次改动在成为发布候选之前要过的检查。
+#
+# release 流水线负责把安装包发出去；这一条回答这棵代码树值不值得构建。
+# 前端与 Rust 各自一个 job，坏在哪一半一眼可见，各留各的缓存。
+# Windows 与 Android 只做 cargo check：只在发布那天才第一次知道
+# 「另一边编译不过」是知道得太晚。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src-tauri/package-lock.json
+
+      - name: Install frontend deps (root)
+        run: npm ci
+
+      - name: Install app deps
+        run: npm ci
+        working-directory: src-tauri
+
+      - name: Build the frontend
+        run: npm run build
+        working-directory: src-tauri
+
+  # generate_context! 会把 web/dist 里的产物嵌进二进制，所以每个 host job
+  # 都得先把前端构建出来，cargo 才能编译。
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src-tauri/package-lock.json
+
+      - name: Install frontend deps (root)
+        run: npm ci
+
+      - name: Install app deps
+        run: npm ci
+        working-directory: src-tauri
+
+      - name: Build the frontend
+        run: npm run build
+        working-directory: src-tauri
+
+      - name: Install the Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Test the host
+        working-directory: src-tauri
+        run: cargo test
+
+  host-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src-tauri/package-lock.json
+
+      - name: Install frontend deps (root)
+        run: npm ci
+
+      - name: Install app deps
+        run: npm ci
+        working-directory: src-tauri
+
+      - name: Build the frontend
+        run: npm run build
+        working-directory: src-tauri
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check the host for Windows
+        working-directory: src-tauri
+        run: cargo check
+
+  # Android 版还没开工，但 Rust 这半已经是它要装进手机的那份代码：
+  # 在这里替它先编译一遍，坏处只等发布那天才暴露就太晚了。
+  # runner 自带 NDK，ANDROID_NDK 指着它；交叉编译 C（rusqlite 打包的
+  # SQLite）要让 cc 知道目标平台的 clang 与 ar 在哪。
+  host-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src-tauri/package-lock.json
+
+      - name: Install frontend deps (root)
+        run: npm ci
+
+      - name: Install app deps
+        run: npm ci
+        working-directory: src-tauri
+
+      - name: Build the frontend
+        run: npm run build
+        working-directory: src-tauri
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check the host for Android
+        working-directory: src-tauri
+        run: |
+          # ANDROID_NDK 属于 runner 的环境变量，shell 看得见、env: 块
+          # 看不见——env 块读的是 workflow 自己的环境，里面没有的名字
+          # 展开成空串。
+          if [ ! -d "${ANDROID_NDK:-}" ]; then
+            echo "the runner has no Android NDK" >&2
+            exit 1
+          fi
+          export ANDROID_NDK_HOME="$ANDROID_NDK"
+          export CC_aarch64_linux_android="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          cargo check --target aarch64-linux-android
