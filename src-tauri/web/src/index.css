@@ -1662,6 +1662,12 @@ select.input {
   font-size: 10.5px;
   color: var(--text-faint);
   text-decoration: none;
+  /* foot-credit 现在是 button（外部链接交给系统浏览器打开），褪掉按钮外观 */
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .foot-credit:hover {

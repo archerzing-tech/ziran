@@ -10,6 +10,10 @@ use tauri::{Manager, State};
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+/// 单张图片的下载上限：图库素材都在几百 KB 量级，64MB 足够宽裕；
+/// 超过它说明 URL 有问题，不值得把内存填满。
+const MAX_DOWNLOAD_BYTES: u64 = 64 * 1024 * 1024;
+
 fn base64_encode(data: &[u8]) -> String {
   let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
   for chunk in data.chunks(3) {
@@ -65,7 +69,11 @@ fn download(url: &str) -> Result<Vec<u8>, String> {
     .call()
     .map_err(|e| e.to_string())?;
   let mut buf = Vec::new();
-  res.into_reader().read_to_end(&mut buf).map_err(|e| e.to_string())?;
+  res
+    .into_reader()
+    .take(MAX_DOWNLOAD_BYTES)
+    .read_to_end(&mut buf)
+    .map_err(|e| e.to_string())?;
   Ok(buf)
 }
 
@@ -110,6 +118,10 @@ fn fetch_into_db(app: &tauri::AppHandle, url: &str, kind: &str) -> Result<(Strin
 /// Serve a gallery image as a data URI: read from the local DB, download on miss.
 #[tauri::command]
 async fn image_data_uri(app: tauri::AppHandle, url: String, kind: Option<String>) -> Result<String, String> {
+  // 上传的图片本来就是 data: URI：原样交还，让前端本地解析
+  if url.starts_with("data:image/") {
+    return Ok(url);
+  }
   if !url.starts_with("https://") && !url.starts_with("http://") {
     return Err("invalid url".into());
   }
@@ -146,7 +158,13 @@ fn prefetch_start(
   urls: Vec<String>,
   kind: String,
 ) -> Result<u32, String> {
-  if state.active.load(Ordering::SeqCst) {
+  // 原子地「未运行 → 运行」：check-then-set 会放并发的第二次点击进来，
+  // 两批 worker 互相覆盖计数器
+  if state
+    .active
+    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+    .is_err()
+  {
     return Err("已有本地化任务在进行".into());
   }
   let valid: Vec<String> = urls
@@ -166,7 +184,6 @@ fn prefetch_start(
   state.total.store(total, Ordering::SeqCst);
   state.done.store(0, Ordering::SeqCst);
   state.failed.store(0, Ordering::SeqCst);
-  state.active.store(true, Ordering::SeqCst);
   if total == 0 {
     state.active.store(false, Ordering::SeqCst);
     return Ok(0);

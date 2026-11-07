@@ -131,6 +131,13 @@ const ratioMeta = (id: string) => RATIOS.find((r) => r.id === id) ?? RATIOS[0]
 
 // 参考图 → 本地 SQLite 库中的 { mime, base64 }（首次取用自动下载入库）
 async function refDataUri(url: string): Promise<{ mime: string; data: string }> {
+  // 上传的照片本来就是 data: URI：直接本地解析，不经后端
+  // （后端 image_data_uri 只接受 http/https 地址）
+  const local = /^data:([^;]+);base64,([\s\S]+)$/.exec(url)
+  if (url.startsWith('data:')) {
+    if (!local) throw new Error('图像数据异常')
+    return { mime: local[1], data: local[2] }
+  }
   const uri = await invoke<string>('image_data_uri', { url, kind: 'ref' })
   const m = /^data:([^;]+);base64,([\s\S]+)$/.exec(uri)
   if (!m) throw new Error('图像数据异常')
@@ -443,6 +450,19 @@ function App() {
   }, [autoFit, boardW, boardH])
 
   const update = (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch }))
+  // 切换供应商：自定义过的模型 / 地址保留，否则跟随新供应商的默认值
+  // （网格卡片与高级设置下拉都走这一条路，避免两处行为不一致）
+  const switchProvider = (value: string) => {
+    const prev = providerMeta(settings.provider)
+    const next = providerMeta(value)
+    const keepModel = Boolean(settings.model.trim()) && settings.model !== prev.model
+    const keepBase = Boolean(settings.baseUrl.trim()) && settings.baseUrl !== prev.baseUrl
+    update({
+      provider: value,
+      model: keepModel ? settings.model : next.model,
+      baseUrl: keepBase ? settings.baseUrl : next.baseUrl
+    })
+  }
   const setRef = (key: RefKey, value: string | null) => {
     setRefs((prev) => {
       const next = { ...prev, [key]: value }
@@ -666,6 +686,37 @@ function App() {
     }
   }
 
+  // 保存成图：data: 直接落盘；远端 URL 先取回成 blob 再落盘
+  // （<a download> 跨域会被浏览器忽略，点击会把整个窗口跳走变成一张图）
+  const saveResult = async () => {
+    if (!result) return
+    try {
+      const res = await fetch(result)
+      if (!res.ok) throw new Error(String(res.status))
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ziran-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.png`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+      setStatus({ text: '已开始下载成图', tone: 'ok' })
+    } catch {
+      openExternal(result)
+      setStatus({ text: '无法直接保存，已在系统浏览器打开图片，可右键另存', tone: 'neutral' })
+    }
+  }
+
+  useEffect(() => {
+    if (!showGuide) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismissGuide()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGuide])
+
   const runPrimary = () => {
     if (!hasKey) {
       setMissing('key')
@@ -746,15 +797,9 @@ function App() {
           <button className="icon-btn" title="使用说明" onClick={() => setShowGuide(true)}>
             <Icon name="help" size={17} />
           </button>
-          <a
-            className="icon-btn"
-            title="下载结果"
-            href={result || undefined}
-            download={result ? 'ziran.png' : undefined}
-            aria-disabled={!result}
-          >
+          <button className="icon-btn" title="下载结果" onClick={saveResult} disabled={!result}>
             <Icon name="download" size={17} />
-          </a>
+          </button>
         </div>
       </header>
 
@@ -911,16 +956,7 @@ function App() {
                 <button
                   key={p.value}
                   className={`provider ${settings.provider === p.value ? 'is-active' : ''}`}
-                  onClick={() => {
-                    const prev = providerMeta(settings.provider)
-                    const keepModel = settings.model.trim() && settings.model !== prev.model
-                    const keepBase = settings.baseUrl.trim() && settings.baseUrl !== prev.baseUrl
-                    update({
-                      provider: p.value,
-                      model: keepModel ? settings.model : p.model,
-                      baseUrl: keepBase ? settings.baseUrl : p.baseUrl
-                    })
-                  }}
+                  onClick={() => switchProvider(p.value)}
                 >
                   <span className="provider-label">{p.label}</span>
                   <span className="provider-sub">{p.sub}</span>
@@ -942,7 +978,7 @@ function App() {
               />
               {activeProvider.keyUrl && (
                 <button className="key-link" onClick={() => openExternal(activeProvider.keyUrl)} title={`申请入口 · ${activeProvider.keyHint}`}>
-                  <Icon name="download" size={13} />
+                  <Icon name="chevron" size={13} />
                 </button>
               )}
             </div>
@@ -1075,7 +1111,7 @@ function App() {
             </div>
             <textarea
               ref={promptRef}
-              className={`input textarea ${missing === 'pose' && !activeProvider.refs && !hasPrompt ? 'is-error' : ''}`}
+              className={`input textarea ${missing === 'pose' && !activeProvider.refs && !prompt.trim() ? 'is-error' : ''}`}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={
@@ -1101,7 +1137,7 @@ function App() {
               <div className="collapse-body">
                 <div className="field">
                   <label>服务商</label>
-                  <select className="input" value={settings.provider} onChange={(e) => update({ provider: e.target.value })}>
+                  <select className="input" value={settings.provider} onChange={(e) => switchProvider(e.target.value)}>
                     {PROVIDERS.map((p) => (
                       <option key={p.value} value={p.value}>
                         {p.label}
@@ -1145,13 +1181,17 @@ function App() {
 
       {galleryOpen && (
         <RefGallery
+          key={galleryOpen}
           kind={galleryOpen}
           catalog={CATALOGS[galleryOpen]}
           activeCode={refMeta[galleryOpen]?.code ?? ''}
           onClose={() => setGalleryOpen(null)}
           onApply={(item, view) => {
             const kind = galleryOpen
-            setRef(kind, assetUrl(CATALOGS[kind].origin, view.full))
+            const url = assetUrl(CATALOGS[kind].origin, view.full)
+            setRef(kind, url)
+            // 预热整图进本地库：之后断网也能用这张参考生成
+            invoke('image_data_uri', { url, kind }).catch(() => {})
             setRefMeta((prev) => ({ ...prev, [kind]: { name: item.name, code: item.code, angle: view.angle } }))
             setResult('')
             setMissing(null)
@@ -1264,6 +1304,19 @@ function RefGallery({
   const [picked, setPicked] = useState<{ item: GalleryItem; angleId: string } | null>(null)
   const [dl, setDl] = useState<{ total: number; done: number; failed: number; active: boolean } | null>(null)
   const [dlErr, setDlErr] = useState('')
+
+  // 重新打开图库时恢复进行中的下载进度（后台任务不随面板关闭而停止）
+  useEffect(() => {
+    let cancelled = false
+    invoke<{ total: number; done: number; failed: number; active: boolean }>('prefetch_status')
+      .then((s) => {
+        if (!cancelled && s.active) setDl(s)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const systemItems = useMemo(
     () => catalog.poses.filter((p) => (catalog.systems.length > 1 ? p.systemId === systemId : true)),
@@ -1464,9 +1517,10 @@ function RefGallery({
             )}
           </div>
           {catalog.source ? (
-            <a className="foot-credit" href={catalog.source} target="_blank" rel="noreferrer">
+            // 应用内不做真实跳转：外部链接交给系统浏览器（open_url）
+            <button className="foot-credit" onClick={() => openExternal(catalog.source)} title={catalog.source}>
               {catalog.attribution || '图源归原作者所有'}
-            </a>
+            </button>
           ) : (
             <span className="foot-credit">{catalog.attribution || ''}</span>
           )}
@@ -1484,15 +1538,31 @@ function RefGallery({
   )
 }
 
+// data URI 内存缓存：LRU 上限，防止翻遍三个图库后常驻内存无界增长
+// （一张缩略图 data URI 约 15~30KB，400 张 ≈ 10MB 封顶）
+const THUMB_MEM_MAX = 400
 const thumbMem = new Map<string, string>()
+
+function cacheThumb(url: string, uri: string) {
+  if (thumbMem.size >= THUMB_MEM_MAX) {
+    const oldest = thumbMem.keys().next().value
+    if (oldest !== undefined) thumbMem.delete(oldest)
+  }
+  thumbMem.set(url, uri)
+}
 
 // resolve a remote asset to a local copy stored in the SQLite gallery DB
 // (remote has no CORS headers, so the webview cannot fetch it directly)
 async function cachedSrc(url: string, kind: string): Promise<string> {
   const hit = thumbMem.get(url)
-  if (hit) return hit
+  if (hit) {
+    // 触碰一次，保持 LRU 顺序
+    thumbMem.delete(url)
+    thumbMem.set(url, hit)
+    return hit
+  }
   const uri = await invoke<string>('image_data_uri', { url, kind })
-  thumbMem.set(url, uri)
+  cacheThumb(url, uri)
   return uri
 }
 
