@@ -7,12 +7,19 @@ import poseCatalogJson from './data/poses.json'
 import costumeCatalogJson from './data/costumes.json'
 import faceCatalogJson from './data/faces.json'
 
+// 构建时由 vite 注入（值来自 tauri.conf.json 的 version）
+declare const __APP_VERSION__: string
+
 type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string; soft?: boolean; adult?: boolean }
+type Theme = 'dark' | 'light'
+
 type Settings = {
   provider: string
   ratio: string
   // 每个供应商一份独立配置：切模型各用各的 Key，模型/地址的自定义也互不覆盖
   configs: Record<string, ProviderUserConfig>
+  // 界面主题：标题栏太阳/月亮按钮切换，随设置持久化
+  theme: Theme
 }
 const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '', soft: false, adult: false }
 
@@ -315,7 +322,7 @@ async function logEvent(level: 'info' | 'warn' | 'error', scope: string, message
   }
 }
 
-const DEFAULT_SETTINGS: Settings = { provider: 'ark', ratio: '1:1', configs: {} }
+const DEFAULT_SETTINGS: Settings = { provider: 'ark', ratio: '1:1', configs: {}, theme: 'dark' }
 
 const STORAGE_KEY = 'ziran.settings'
 const EMPTY_REFS: Refs = { photo: null, pose: null, costume: null, face: null }
@@ -408,6 +415,7 @@ function loadSettings(): Settings {
     const parsed = JSON.parse(raw) as Record<string, unknown>
     const pickRatio = (v: unknown) =>
       typeof v === 'string' && RATIOS.some((r) => r.id === v) ? v : DEFAULT_SETTINGS.ratio
+    const pickTheme = (v: unknown): Theme => (v === 'light' ? 'light' : 'dark')
     // 旧格式（全局单一 apiKey）迁移：挪进当时所用供应商名下，其余供应商不受影响
     if (typeof parsed.apiKey === 'string' && !parsed.configs) {
       const legacyProvider =
@@ -420,13 +428,14 @@ function loadSettings(): Settings {
         configs: sanitizeConfigs({
           [legacyProvider]: { apiKey: parsed.apiKey, model: parsed.model, baseUrl: parsed.baseUrl }
         }),
+        theme: pickTheme(parsed.theme),
       }
     }
     const provider =
       typeof parsed.provider === 'string' && DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
         ? parsed.provider
         : DEFAULT_SETTINGS.provider
-    return { provider, ratio: pickRatio(parsed.ratio), configs: sanitizeConfigs(parsed.configs) }
+    return { provider, ratio: pickRatio(parsed.ratio), configs: sanitizeConfigs(parsed.configs), theme: pickTheme(parsed.theme) }
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -464,6 +473,8 @@ type IconName =
   | 'close'
   | 'search'
   | 'help'
+  | 'sun'
+  | 'moon'
 
 const ICON_PATHS: Record<IconName, ReactNode> = {
   pointer: <path d="M6 3.5l9.4 8.5-4.2.6 2.4 4.9-1.9.9-2.4-4.9L6 15.9z" />,
@@ -516,6 +527,13 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   fit: <path d="M4.5 9.4V4.5h4.9M19.5 9.4V4.5h-4.9M4.5 14.6v4.9h4.9M19.5 14.6v4.9h-4.9" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M5.9 5.9l1.4 1.4M16.7 16.7l1.4 1.4M18.1 5.9l-1.4 1.4M7.3 16.7l-1.4 1.4" />
+    </>
+  ),
+  moon: <path d="M20 13.2A8.2 8.2 0 1110.8 4a6.5 6.5 0 009.2 9.2z" />,
   settings: (
     <>
       <path d="M4.5 7.5h15M4.5 16.5h15" />
@@ -615,6 +633,11 @@ function App() {
     }
   }, [settings])
 
+  // 主题落到 <html data-theme>，CSS 在 token 层整体翻转
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme
+  }, [settings.theme])
+
   // 启动时把本地生成历史拉进来自动填充切换条（后端不在则静默跳过；
   // 兜底 Array.isArray：桩/异常路径返回 null 时不能把列表打成 null）
   useEffect(() => {
@@ -706,7 +729,15 @@ function App() {
     const compute = () => {
       const area = areaRef.current
       if (!area) return
-      const fit = Math.min((area.clientWidth - 96) / boardW, (area.clientHeight - 96) / boardH)
+      // fit 时给上方「已选参考」横带和底部「生成历史」条让出高度：
+      // 有横带时画布顶部锚定（padding 10 + 横带 + gap 10），画板布局盒顶 = 横带之下；
+      // 无横带时画板居中。画板以顶边为缩放原点（只向下生长）
+      const areaH = area.clientHeight
+      const stripH = area.querySelector<HTMLElement>('.ref-strip')?.offsetHeight || 0
+      const histH = area.querySelector<HTMLElement>('.history-strip')?.offsetHeight || 0
+      const layoutTop = stripH > 0 ? stripH + 20 : Math.max(0, (areaH - boardH) / 2)
+      const bottomPad = histH > 0 ? histH + 26 : 26
+      const fit = Math.min((area.clientWidth - 96) / boardW, (areaH - layoutTop - bottomPad) / boardH)
       setZoom(Math.max(0.2, Math.min(1.6, Number(fit.toFixed(2)))))
     }
     compute()
@@ -1344,6 +1375,13 @@ function App() {
           <button className="icon-btn" title="使用说明" onClick={() => setShowGuide(true)}>
             <Icon name="help" size={17} />
           </button>
+          <button
+            className="icon-btn"
+            title={settings.theme === 'light' ? '切换到暗色' : '切换到亮色'}
+            onClick={() => update({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
+          >
+            <Icon name={settings.theme === 'light' ? 'moon' : 'sun'} size={17} />
+          </button>
         </div>
       </header>
 
@@ -1387,7 +1425,7 @@ function App() {
         </nav>
 
         <section
-          className={`canvas-area ${dragging ? 'is-dragging' : ''}`}
+          className={`canvas-area ${dragging ? 'is-dragging' : ''} ${stripRefs.length > 0 ? 'has-strip' : ''}`}
           ref={areaRef}
           onDragOver={(e) => {
             e.preventDefault()
@@ -1400,6 +1438,24 @@ function App() {
             await pickFile(e.dataTransfer.files?.[0], active)
           }}
         >
+          {/* 已选参考缩略条：画板上方居中的独立横带（流内布局），出图时也不叠住图片 */}
+          {stripRefs.length > 0 && (
+            <div className="ref-strip" aria-label="已选参考">
+              {stripRefs.map((k) => (
+                <button
+                  key={k}
+                  className="ref-strip-card"
+                  title={`点击放大 · ${stripLabel(k)}`}
+                  onClick={() => setPreview({ src: refs[k] as string, title: stripLabel(k) })}
+                >
+                  <span className="ref-strip-thumb">
+                    <RefThumb url={refs[k]} kind={k} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="artboard-shadow" style={{ transform: `scale(${zoom})` }}>
             <div className="artboard" style={{ width: boardW, height: boardH }}>
               <div className="checker" />
@@ -1433,26 +1489,28 @@ function App() {
                   <Icon name="download" size={15} />
                 </button>
               )}
+              {/* 缩放工具条：浮在图片图层底部内侧（半透明胶囊）。transform 同时做
+                  居中定位与反向缩放（抵消画板 scale，钳制 0.9–1.25 倍，文字大小始终接近原大） */}
+              <div
+                className="canvas-hud"
+                style={{
+                  transform: `translateX(-50%) scale(${Number(Math.max(0.9, Math.min(1.25, 1 / zoom)).toFixed(3))})`,
+                }}
+              >
+                <button className="hud-btn" onClick={() => bumpZoom(-0.1)} title="缩小">
+                  <Icon name="zoomOut" size={16} />
+                </button>
+                <button className="hud-zoom" onClick={() => setAutoFit(true)} title="适应窗口">
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button className="hud-btn" onClick={() => bumpZoom(0.1)} title="放大">
+                  <Icon name="zoomIn" size={16} />
+                </button>
+                <span className="hud-sep" />
+                <span className="hud-meta">{activeRatio.size.replace('x', ' × ')}</span>
+              </div>
             </div>
           </div>
-
-          {stripRefs.length > 0 && (
-            <div className="ref-strip" aria-label="已选参考">
-              {stripRefs.map((k) => (
-                <button
-                  key={k}
-                  className="ref-strip-card"
-                  title={`点击放大 · ${stripLabel(k)}`}
-                  onClick={() => setPreview({ src: refs[k] as string, title: stripLabel(k) })}
-                >
-                  <span className="ref-strip-thumb">
-                    <RefThumb url={refs[k]} kind={k} />
-                  </span>
-                  <span className="ref-strip-label">{stripLabel(k)}</span>
-                </button>
-              ))}
-            </div>
-          )}
 
           {/* 生成历史切换条：多于一张才显示（一张没有切换的意义）。
               viewingHistory 为 null（刚生成完）时高亮最新一张。 */}
@@ -1512,23 +1570,6 @@ function App() {
             </div>
           )}
 
-          <div className="canvas-hud">
-            <button className="hud-btn" onClick={() => bumpZoom(-0.1)} title="缩小">
-              <Icon name="zoomOut" size={16} />
-            </button>
-            <button
-              className="hud-zoom"
-              onClick={() => setAutoFit(true)}
-              title="适应窗口"
-            >
-              {Math.round(zoom * 100)}%
-            </button>
-            <button className="hud-btn" onClick={() => bumpZoom(0.1)} title="放大">
-              <Icon name="zoomIn" size={16} />
-            </button>
-            <span className="hud-sep" />
-            <span className="hud-meta">{activeRatio.size.replace('x', ' × ')}</span>
-          </div>
         </section>
 
         <aside className="inspector">
@@ -2001,6 +2042,8 @@ function App() {
           <span className="mono">{activeProvider.label} / {effModel()}</span>
           <span className="status-sep" />
           <span className="mono">{hasKey ? '密钥已设置' : '密钥未设置'}</span>
+          <span className="status-sep" />
+          <span className="mono">v{__APP_VERSION__}</span>
         </div>
       </footer>
     </div>

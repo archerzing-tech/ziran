@@ -16,6 +16,22 @@
   --radius: 7px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+/* 亮色主题：只翻转 token，组件配色仍走 var() 的自动跟随；
+   写死暗色的组件在文件末尾统一覆盖 */
+html[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f2f2f5;
+  --chrome: #fbfbfd;
+  --panel: #ffffff;
+  --panel-2: #eaeaf0;
+  --line: #e0e0e6;
+  --line-2: #cfcfd8;
+  --text: #1d1e26;
+  --text-dim: #5f6070;
+  --text-faint: #9091a0;
 }
 
 * {
@@ -267,8 +283,17 @@ textarea {
   background-color: #0b0b0e;
   background-image: radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px);
   background-size: 22px 22px;
-  display: grid;
-  place-items: center;
+  /* 纵向流：无缩略条时画板居中；有缩略条时切到顶部锚定（.has-strip），横带贴顶边 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 10px;
+}
+
+.canvas-area.has-strip {
+  justify-content: safe flex-start;
+  padding-top: 10px;
 }
 
 .canvas-area.is-dragging::after {
@@ -284,6 +309,8 @@ textarea {
 .artboard-shadow {
   transition: transform 0.12s ease-out;
   will-change: transform;
+  /* 以顶边为缩放原点：放大只向下/两侧生长，不会盖回上方的「已选参考」横带 */
+  transform-origin: 50% 0;
 }
 
 .artboard {
@@ -361,67 +388,82 @@ textarea {
   backdrop-filter: blur(6px);
 }
 
+/* 缩放工具条：浮在画板（图片图层）底部内侧的半透明胶囊。
+   width:max-content + nowrap 保证单行不换行（窄画板也拉长，超出部分极少见）；
+   文字用显式亮色，半透明底上仍可读。定位与反向缩放的 transform 由 JSX 内联给出；
+   transform-origin 压在底边，缩放时贴住底缘不漂移 */
 .canvas-hud {
   position: absolute;
-  bottom: 14px;
+  bottom: 10px;
   left: 50%;
-  transform: translateX(-50%);
+  width: max-content;
+  white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
-  border-radius: 8px;
-  background: rgba(20, 20, 25, 0.9);
-  border: 1px solid var(--line-2);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  /* 低透明度 + 轻模糊：能透过胶囊看到图像（略微清晰可辨），
+     文字靠亮色 + 投影在花背景上保持可读 */
+  background: rgba(15, 16, 22, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(9px) saturate(1.15);
+  transform-origin: 50% 100%;
+  z-index: 4;
+}
+
+.hud-btn,
+.hud-zoom,
+.hud-meta {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .hud-btn {
-  width: 26px;
-  height: 24px;
+  width: 28px;
+  height: 26px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text-dim);
+  color: #dfe3ec;
   cursor: pointer;
 }
 
 .hud-btn:hover {
-  background: var(--panel-2);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
 }
 
 .hud-zoom {
-  min-width: 50px;
-  height: 24px;
+  min-width: 58px;
+  height: 26px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text);
-  font-size: 11px;
+  color: #f2f4f8;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
 .hud-zoom:hover {
-  background: var(--panel-2);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .hud-sep {
   width: 1px;
-  height: 14px;
-  background: var(--line-2);
-  margin: 0 4px;
+  height: 15px;
+  background: rgba(255, 255, 255, 0.16);
+  margin: 0 6px;
 }
 
 .hud-meta {
-  font-size: 11px;
-  color: var(--text-faint);
+  font-size: 12px;
+  color: #d5dae2;
   font-variant-numeric: tabular-nums;
-  padding-right: 4px;
+  padding-right: 2px;
 }
 
 /* ---------- inspector ---------- */
@@ -1808,27 +1850,24 @@ select.input {
   color: var(--text-faint);
 }
 
-/* 画板顶部「已选参考」缩略条：出图时也能看清这次用了哪几张模板；
-   z-index 高过 gen-veil，全部未选时不渲染（无占位） */
+/* 「已选参考」缩略条：贴画布顶边居中的横带（流内布局，不叠图，顶部空隙由 .has-strip 的 padding 给）；
+   position:relative 让 z-index 生效，仍高过 gen-veil；全部未选时不渲染（无占位） */
 .ref-strip {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  position: relative;
+  z-index: 6;
+  align-self: stretch;
   display: flex;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
-  z-index: 6;
+  padding: 0 12px;
   pointer-events: none;
 }
 
+/* 缩略卡只放图不放文字；名称靠悬停 title 和点击放大后的预览标题展示 */
 .ref-strip-card {
   pointer-events: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 7px 4px;
+  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(14, 15, 20, 0.8);
@@ -1854,16 +1893,6 @@ select.input {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.ref-strip-label {
-  max-width: 68px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 9.5px;
-  letter-spacing: 0.02em;
-  color: var(--text-dim);
 }
 
 /* 生成历史切换条：贴画板底部一排 44px 缩略图，可横向滚动；
@@ -2306,4 +2335,151 @@ select.input {
   border-top: 1px solid var(--line);
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* ---------- 亮色主题覆盖（html[data-theme='light']）---------- */
+/* token 翻转覆盖不到的写死暗色组件；叠加在图片上的元素
+   （canvas-hud / artboard-tag / 下载钮 / 缩略卡片 / 遮罩 / 大图预览）
+   两种主题都保持深色，保证在任何成图上可读 */
+
+html[data-theme='light'] .canvas-area {
+  background-color: #ececf0;
+  background-image: radial-gradient(rgba(20, 22, 34, 0.08) 1px, transparent 1px);
+}
+
+html[data-theme='light'] .artboard {
+  background: #f6f6f9;
+  border-color: #d4d4dd;
+  box-shadow: 0 18px 50px rgba(35, 38, 55, 0.16), 0 0 0 1px rgba(35, 38, 55, 0.05);
+}
+
+html[data-theme='light'] .artboard-grid {
+  background-image: linear-gradient(to right, rgba(20, 22, 34, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 22, 34, 0.055) 1px, transparent 1px),
+    linear-gradient(to right, rgba(20, 22, 34, 0.11) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 22, 34, 0.11) 1px, transparent 1px);
+}
+
+html[data-theme='light'] .checker {
+  background-image: linear-gradient(45deg, #e7e7ec 25%, transparent 25%),
+    linear-gradient(-45deg, #e7e7ec 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e7e7ec 75%),
+    linear-gradient(-45deg, transparent 75%, #e7e7ec 75%);
+  background-color: #f8f8fb;
+}
+
+html[data-theme='light'] .ref-thumb {
+  background-image: linear-gradient(45deg, #e7e7ec 25%, transparent 25%),
+    linear-gradient(-45deg, #e7e7ec 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e7e7ec 75%),
+    linear-gradient(-45deg, transparent 75%, #e7e7ec 75%);
+  background-color: #f8f8fb;
+}
+
+html[data-theme='light'] .input,
+html[data-theme='light'] .config-btn,
+html[data-theme='light'] .test-btn,
+html[data-theme='light'] .ratio {
+  background: #f6f6f9;
+}
+
+html[data-theme='light'] .search {
+  background: #eeeef2;
+}
+
+html[data-theme='light'] .stepper {
+  background: #eeeef2;
+}
+
+html[data-theme='light'] .primary:disabled {
+  background: #c9d0e2;
+}
+
+html[data-theme='light'] .mini-btn:hover:not(:disabled) {
+  background: rgba(15, 18, 34, 0.08);
+}
+
+html[data-theme='light'] .panel-item:hover {
+  background: rgba(15, 18, 34, 0.05);
+}
+
+html[data-theme='light'] .key-dot {
+  background: #c6c6d0;
+}
+
+html[data-theme='light'] .model-panel {
+  background: #ffffff;
+  box-shadow: 0 24px 64px rgba(35, 38, 55, 0.28);
+}
+
+html[data-theme='light'] .guide,
+html[data-theme='light'] .gallery {
+  background: #ffffff;
+  box-shadow: 0 32px 80px rgba(35, 38, 55, 0.3);
+}
+
+html[data-theme='light'] .gallery-head,
+html[data-theme='light'] .gallery-foot {
+  background: #f2f2f6;
+}
+
+html[data-theme='light'] .gallery-side {
+  background: #f7f7fa;
+}
+
+html[data-theme='light'] .pose-card {
+  background: #ffffff;
+}
+
+html[data-theme='light'] .pose-thumb {
+  background-image: linear-gradient(45deg, #e8e8ee 25%, transparent 25%),
+    linear-gradient(-45deg, #e8e8ee 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e8e8ee 75%),
+    linear-gradient(-45deg, transparent 75%, #e8e8ee 75%);
+  background-color: #f2f2f6;
+}
+
+html[data-theme='light'] .pose-thumb-media:empty::after {
+  background: linear-gradient(100deg, transparent 32%, rgba(15, 18, 34, 0.06) 50%, transparent 68%) no-repeat;
+  background-size: 220% 100%;
+}
+
+html[data-theme='light'] .preview-card {
+  background: #ffffff;
+}
+
+html[data-theme='light'] .history-thumb-wait {
+  background: rgba(15, 18, 34, 0.07);
+}
+
+/* 深色浮卡上的文字/描边仍按暗色主题的灰阶（token 在亮色下翻深，会沉进深底里） */
+html[data-theme='light'] .canvas-hint {
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 32px rgba(35, 38, 55, 0.22);
+}
+
+html[data-theme='light'] .artboard-tag {
+  color: #9a9aa8;
+}
+
+html[data-theme='light'] .ref-strip-card,
+html[data-theme='light'] .history-card {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme='light'] .artboard-download {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #9a9aa8;
+}
+
+html[data-theme='light'] .preview-close {
+  color: #e7e7ee;
+}
+
+html[data-theme='light'] .inspector::-webkit-scrollbar-thumb {
+  background: #c7c7d1;
+}
+
+html[data-theme='light'] .inspector::-webkit-scrollbar-thumb:hover {
+  background: #adadba;
 }
