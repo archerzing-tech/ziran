@@ -16,17 +16,9 @@
 
 ## 截图
 
-**工作台** —— 左侧画板、右侧供应商与参考图，按顺序走完三步即可出图：
+**传一张照片、挑一张姿势，出一张成图** —— 画板上已载入一张坐姿线稿参考（内置姿势图库按坐姿/站姿/躺卧等分类，98 张人体线稿）：
 
-<img src="docs/screenshots/main.png" width="820" alt="Ziran 工作台">
-
-**内置参考图库** —— 姿势（线稿）、服装（实拍）、人脸（CC0 实拍），支持分类筛选、搜索、双击直接载入：
-
-| 姿势 · 98 张 | 服装 · 1407 套 |
-|---|---|
-| <img src="docs/screenshots/pose-gallery.png" width="400" alt="姿势图库"> | <img src="docs/screenshots/costume-gallery.png" width="400" alt="服装图库"> |
-| **人脸 · 1499 张（CC0）** | |
-| <img src="docs/screenshots/face-gallery.png" width="400" alt="人脸图库"> | |
+<img src="docs/screenshots/main.png" width="820" alt="Ziran 工作台：坐姿参考已载入画板，右侧选模型、配参考、点生成">
 
 ## 功能
 
