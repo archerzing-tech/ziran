@@ -213,6 +213,62 @@ jobs:
       - name: Remove stale bundles from restored cache
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle
 
+      # WiX / NSIS / 插件 dll 都是 GitHub release 资产，CDN 抽风时 bundler
+      # 自带的单次下载连吃 504（v0.2.1 卡了四趟构建）。这里用长退避 curl
+      # 把三个工件预下载进 bundler 的工具目录（%LOCALAPPDATA%\tauri）并
+      # 校验哈希——目录齐了 bundler 就不再自己下载；目录整体进 actions/
+      # cache，成功一次之后所有发布都不再碰这个 CDN。哈希取自
+      # tauri-bundler 2.12.4 源码（WIX_SHA256 / NSIS_SHA1 /
+      # NSIS_TAURI_UTILS_SHA1），装错文件会在这一步当场炸而不是进构建。
+      - name: Cache vendored WiX/NSIS
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri
+          key: tauri-bundler-tools-wix314-nsis313
+
+      - name: Vendor WiX/NSIS for the bundler
+        run: |
+          tools="$LOCALAPPDATA/tauri"
+          fetch() {
+            for i in 1 2 3 4 5 6 7 8; do
+              curl -fL --connect-timeout 20 --max-time 600 -o "$2" "$1" && return 0
+              echo "download attempt $i failed ($1); waiting 60s" >&2
+              sleep 60
+            done
+            echo "gave up downloading $1" >&2
+            return 1
+          }
+          if [ ! -f "$tools/WixTools314/candle.exe" ]; then
+            mkdir -p "$tools/WixTools314"
+            fetch "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" "$tools/wix.zip"
+            echo "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31  $tools/wix.zip" | sha256sum -c -
+            ( command -v 7z >/dev/null 2>&1 && 7z x -y -o"$tools/WixTools314" "$tools/wix.zip" >/dev/null ) \
+              || ( command -v unzip >/dev/null 2>&1 && unzip -q -o "$tools/wix.zip" -d "$tools/WixTools314" )
+            rm -f "$tools/wix.zip"
+          fi
+          if [ ! -f "$tools/NSIS/makensis.exe" ]; then
+            fetch "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip" "$tools/nsis.zip"
+            echo "DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E  $tools/nsis.zip" | sha1sum -c -
+            ( command -v 7z >/dev/null 2>&1 && 7z x -y -o"$tools" "$tools/nsis.zip" >/dev/null ) \
+              || ( command -v unzip >/dev/null 2>&1 && unzip -q -o "$tools/nsis.zip" -d "$tools" )
+            rm -rf "$tools/NSIS"
+            mv "$tools/nsis-3.13" "$tools/NSIS"
+            rm -f "$tools/nsis.zip"
+          fi
+          dll="$tools/NSIS/Plugins/x86-unicode/additional/nsis_tauri_utils.dll"
+          if [ ! -f "$dll" ]; then
+            mkdir -p "$(dirname "$dll")"
+            fetch "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll" "$dll"
+          fi
+          echo "75197FEE3C6A814FE035788D1C34EAD39349B860  $dll" | sha1sum -c -
+          for f in candle.exe light.exe WixUIExtension.dll WixUtilExtension.dll; do
+            [ -f "$tools/WixTools314/$f" ] || { echo "missing $tools/WixTools314/$f" >&2; exit 1; }
+          done
+          for f in makensis.exe Bin/makensis.exe Plugins/x86-unicode/additional/nsis_tauri_utils.dll; do
+            [ -f "$tools/NSIS/$f" ] || { echo "missing $tools/NSIS/$f" >&2; exit 1; }
+          done
+          echo "vendored bundler tools ready in $tools"
+
       # WiX / NSIS 从 GitHub releases 下载，偶尔连续 504（v0.2.1 卡过三次）。
       # cargo 树已在缓存里，重试只花打包几分钟，不重编依赖。
       - name: Build app
