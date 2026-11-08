@@ -1867,7 +1867,7 @@ select.input {
 /* 缩略卡只放图不放文字；名称靠悬停 title 和点击放大后的预览标题展示 */
 .ref-strip-card {
   pointer-events: auto;
-  padding: 4px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(14, 15, 20, 0.8);
@@ -1882,8 +1882,9 @@ select.input {
 .ref-strip-thumb {
   display: block;
   width: 56px;
-  height: 56px;
-  border-radius: 5px;
+  /* 3:4 格 + contain：照片完整显示，不再被方形格裁头切脚 */
+  aspect-ratio: 3 / 4;
+  border-radius: 4px;
   overflow: hidden;
   background: #101015;
 }
@@ -1892,7 +1893,7 @@ select.input {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* 生成历史切换条：贴画板底部一排 44px 缩略图，可横向滚动；
@@ -2021,7 +2022,7 @@ select.input {
 
 .pose-card.is-picked {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .pose-thumb {
@@ -2343,14 +2344,14 @@ select.input {
    两种主题都保持深色，保证在任何成图上可读 */
 
 html[data-theme='light'] .canvas-area {
-  background-color: #ececf0;
-  background-image: radial-gradient(rgba(20, 22, 34, 0.08) 1px, transparent 1px);
+  background-color: #e3e3e9;
+  background-image: radial-gradient(rgba(20, 22, 34, 0.1) 1px, transparent 1px);
 }
 
 html[data-theme='light'] .artboard {
   background: #f6f6f9;
   border-color: #d4d4dd;
-  box-shadow: 0 18px 50px rgba(35, 38, 55, 0.16), 0 0 0 1px rgba(35, 38, 55, 0.05);
+  box-shadow: 0 18px 50px rgba(35, 38, 55, 0.22), 0 2px 10px rgba(35, 38, 55, 0.1), 0 0 0 1px rgba(35, 38, 55, 0.05);
 }
 
 html[data-theme='light'] .artboard-grid {
@@ -2393,6 +2394,17 @@ html[data-theme='light'] .stepper {
 
 html[data-theme='light'] .primary:disabled {
   background: #c9d0e2;
+}
+
+/* 步骤引导按钮：暗色是深海军蓝，亮色下翻成淡蓝底 + 深蓝字 */
+html[data-theme='light'] .primary.is-guiding {
+  background: #e9effd;
+  color: #2e63d9;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+html[data-theme='light'] .primary.is-guiding:hover:not(:disabled) {
+  background: #dde8fb;
 }
 
 html[data-theme='light'] .mini-btn:hover:not(:disabled) {
@@ -2462,9 +2474,17 @@ html[data-theme='light'] .artboard-tag {
   color: #9a9aa8;
 }
 
+/* 画布上的缩略卡（参考条 / 历史胶片）亮色下翻成白玻璃，不再压成黑块 */
 html[data-theme='light'] .ref-strip-card,
 html[data-theme='light'] .history-card {
-  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(20, 22, 34, 0.16);
+  backdrop-filter: blur(8px) saturate(1.1);
+  box-shadow: 0 1px 4px rgba(35, 38, 55, 0.1);
+}
+
+html[data-theme='light'] .ref-strip-thumb {
+  background-color: #f2f2f6;
 }
 
 html[data-theme='light'] .artboard-download {
