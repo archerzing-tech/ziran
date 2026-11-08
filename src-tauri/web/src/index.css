@@ -1881,19 +1881,20 @@ select.input {
 
 .ref-strip-thumb {
   display: block;
-  width: 56px;
-  /* 3:4 格 + contain：照片完整显示，不再被方形格裁头切脚 */
-  aspect-ratio: 3 / 4;
+  width: 52px;
+  height: 52px;
   border-radius: 4px;
   overflow: hidden;
   background: #101015;
 }
 
+/* 方格小图 cover 铺满；竖图取景点上移到 22%，人脸留在格里、只裁下半身 */
 .ref-strip-thumb img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+  object-position: 50% 22%;
 }
 
 /* 生成历史切换条：贴画板底部一排 44px 缩略图，可横向滚动；
@@ -1931,6 +1932,7 @@ select.input {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: 50% 22%;
 }
 
 .history-card:hover {
