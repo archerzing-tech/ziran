@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { invoke } from '@tauri-apps/api/core'
@@ -2124,6 +2124,33 @@ function RefGallery({
     if (!visible.some((p) => p.id === picked.item.id)) setPicked(null)
   }, [visible, picked])
 
+  // 分块渲染：服装/人脸图库上千张卡，全部一次性铺进 DOM 会让点选重
+  // 渲染变成一次长任务（选中高亮要等整帧画完才出现，手感是「点了
+  // 有延迟」）。先渲染一屏多一点，滚动临近底部再追加；范围一变
+  // （换库/换系统/换分类/改搜索）就从首屏重来。
+  const CHUNK = 120
+  const [limit, setLimit] = useState(CHUNK)
+  const sentinelEl = useRef<HTMLDivElement | null>(null)
+  const scopeKey = `${kind}:${systemId}:${category}:${query}`
+  useEffect(() => {
+    setLimit(CHUNK)
+  }, [scopeKey])
+  useEffect(() => {
+    if (limit >= visible.length) return
+    const el = sentinelEl.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setLimit((l) => Math.min(l + CHUNK, visible.length))
+        }
+      },
+      { rootMargin: '900px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [limit, visible.length])
+
   const selected = useMemo(() => {
     if (!picked) return null
     const view = picked.item.views.find((v) => v.angleId === picked.angleId) ?? picked.item.views[0]
@@ -2279,7 +2306,7 @@ function RefGallery({
             </div>
 
             <div className="pose-grid">
-              {visible.map((item) => {
+              {visible.slice(0, limit).map((item) => {
                 const view = item.views[0]
                 const isPicked = picked?.item.id === item.id
                 return (
@@ -2301,6 +2328,9 @@ function RefGallery({
                   </button>
                 )
               })}
+              {limit < visible.length && (
+                <div className="grid-sentinel" ref={sentinelEl} aria-hidden="true" />
+              )}
               {!visible.length && <p className="gallery-empty">没有匹配的内容</p>}
             </div>
           </div>
@@ -2446,7 +2476,7 @@ function PreviewImg({ url }: { url: string }) {
   return <img src={src} alt="" />
 }
 
-function GalleryImage({
+function GalleryImageImpl({
   view,
   origin,
   alt,
@@ -2515,6 +2545,10 @@ function GalleryImage({
     </span>
   )
 }
+
+// memo：点选卡片只让被点中的那张重绘，其余上千张直接跳过调和。
+// props（view/origin/alt/kind）都来自 catalog 的稳定引用，memo 有效。
+const GalleryImage = memo(GalleryImageImpl)
 
 const container = document.getElementById('root')
 if (!container) throw new Error('#root container missing')

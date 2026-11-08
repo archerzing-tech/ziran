@@ -1742,6 +1742,12 @@ select.input {
   align-content: start;
 }
 
+/* 分块渲染的哨兵：占满一行、零高度，靠 rootMargin 提前触发追加 */
+.grid-sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
+}
+
 .pose-thumb-media {
   display: block;
   width: 100%;
