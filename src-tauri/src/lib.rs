@@ -272,7 +272,7 @@ fn prefetch_start(
 
   let st = Arc::clone(&*state);
   std::thread::spawn(move || {
-    let workers = 4usize;
+    let workers = 6usize;
     let mut handles = Vec::new();
     for chunk in missing.chunks(missing.len().div_ceil(workers)) {
       let app = app.clone();

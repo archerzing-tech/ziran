@@ -1015,25 +1015,68 @@ select.input {
   color: var(--text-faint);
 }
 
-/* 委婉描述开关：贴在描述框下方的一行小勾选 */
-.soft-row {
+/* 内容合规：模型配置面板里的一组勾选（委婉描述 / 允许成人向内容） */
+.panel-check {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.panel-check label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 10.5px;
+  gap: 7px;
+  font-size: 11px;
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
 }
 
-.soft-row input {
+.panel-check label:hover {
+  color: var(--text);
+}
+
+.panel-check input {
   accent-color: var(--accent);
   margin: 0;
 }
 
-.soft-row:hover {
-  color: var(--text);
+.panel-check .help {
+  margin-top: 2px;
+}
+
+/* 审核拦截提示：生成被服务商安全审核拦下时，底栏醒目告警条（区别于普通故障） */
+.censor-note {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(229, 72, 77, 0.45);
+  border-radius: 8px;
+  background: rgba(229, 72, 77, 0.1);
+}
+
+.censor-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ff8589;
+  letter-spacing: 0.02em;
+}
+
+.censor-body {
+  margin: 5px 0 8px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.censor-jump {
+  color: #ff9d9f;
+  border-color: rgba(229, 72, 77, 0.5);
+}
+
+.censor-jump:hover {
+  color: #ffb7b8;
+  border-color: #ff8589;
 }
 
 .input.is-error {
@@ -1683,6 +1726,11 @@ select.input {
   }
 }
 
+/* 卡片按下反馈：点选瞬间的「已响应」手感（transition 由 .pose-card 基础规则提供） */
+.pose-card:active {
+  transform: scale(0.97);
+}
+
 /* 画板缩略图已显、全图还在后台解析时的角标 */
 .board-upgrading {
   position: absolute;
@@ -1701,6 +1749,63 @@ select.input {
 /* 画板在等第一张图时的呼吸感 */
 .empty.is-loading {
   animation: board-breathe 1.6s ease-in-out infinite;
+}
+
+/* 生成过渡幕：请求在途时盖住画板区域的轻提示，让「在处理」看得见；
+   不拦截指针，等图期间仍可翻图库、改描述 */
+.gen-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: radial-gradient(closest-side, rgba(10, 11, 16, 0.55), rgba(10, 11, 16, 0.25) 70%, transparent);
+  animation: gen-veil-in 0.25s ease-out;
+  pointer-events: none;
+  z-index: 5;
+}
+
+@keyframes gen-veil-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.gen-ring {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(76, 141, 255, 0.18);
+  border-top-color: var(--accent);
+  animation: gen-spin 0.9s linear infinite;
+}
+
+@keyframes gen-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.gen-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.gen-sub {
+  margin: 0;
+  max-width: 340px;
+  text-align: center;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
 }
 
 @keyframes board-breathe {

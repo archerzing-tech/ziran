@@ -7,14 +7,14 @@ import poseCatalogJson from './data/poses.json'
 import costumeCatalogJson from './data/costumes.json'
 import faceCatalogJson from './data/faces.json'
 
-type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string; soft?: boolean }
+type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string; soft?: boolean; adult?: boolean }
 type Settings = {
   provider: string
   ratio: string
   // 每个供应商一份独立配置：切模型各用各的 Key，模型/地址的自定义也互不覆盖
   configs: Record<string, ProviderUserConfig>
 }
-const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '', soft: false }
+const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '', soft: false, adult: false }
 
 type RefKey = 'photo' | 'pose' | 'costume' | 'face'
 type Refs = Record<RefKey, string | null>
@@ -260,15 +260,30 @@ function autoPrompt(refs: Refs): string {
 // 委婉化提示词：剥掉「隐形人/不要人/不要皮肤」式负向短语（关键字审核的高频
 // 命中点），并追加一句含蓄化引导。参考原项目 gen-ai-pose-image 的
 // 「违禁词优化」开关；默认关，开了才走这条路径，原文尽量保留。
+// 「允许成人向内容」打开时不附加「画面得体、可公开展示」的约束句，只保留剥负向短语。
 const GHOST_CLAUSE =
   /不要人|不要头|不要脸|不要手|不要腿|不要身体|不要皮肤|不要露出(?:腿|皮肤)|隐形人|画面里只有衣服/g
-function softenPrompt(text: string): string {
+function softenPrompt(text: string, adult: boolean): string {
   const cleaned = text
     .replace(GHOST_CLAUSE, ' ')
     .replace(/[，,]{2,}/g, '，')
     .replace(/^[\s，,。;；]+|[\s，,。;；]+$/g, '')
     .trim()
-  return `${cleaned}，用含蓄日常的说法描写衣着与姿态，画面得体、可公开展示`
+  return adult
+    ? `${cleaned}，如实描写参考图中人物的穿搭与姿态`
+    : `${cleaned}，用含蓄日常的说法描写衣着与姿态，画面得体、可公开展示`
+}
+
+// 服装图库里的敏感分类：跟随「允许成人向内容」开关隐藏（与 catalog 原文精确匹配）
+const SENSITIVE_CATEGORIES = ['内衣・睡衣', '性感穿搭', '泳装・度假']
+
+// 判定一次生成失败是否疑似「内容审核拦截」：方舟是
+// OutputImageSensitiveContentDetected / InputImageSensitiveContentDetected，
+// 其他常见写法一并覆盖；宁可多提示，也不要把审核问题当软件故障让用户白查
+const CENSOR_RE =
+  /SensitiveContentDetected|content_policy|ContentPolicy|content_moderation|内容审核|审核未通过|审核拦截|敏感内容|违规内容/i
+function isCensorError(msg: string): boolean {
+  return CENSOR_RE.test(msg)
 }
 
 async function openExternal(url: string) {
@@ -359,7 +374,8 @@ function sanitizeConfigs(raw: unknown): Record<string, ProviderUserConfig> {
       const apiKey = typeof c.apiKey === 'string' ? c.apiKey : ''
       const model = typeof c.model === 'string' ? c.model : ''
       const baseUrl = typeof c.baseUrl === 'string' ? c.baseUrl : ''
-      if (apiKey || model || baseUrl || c.soft === true) out[k] = { apiKey, model, baseUrl, soft: c.soft === true }
+      if (apiKey || model || baseUrl || c.soft === true || c.adult === true)
+        out[k] = { apiKey, model, baseUrl, soft: c.soft === true, adult: c.adult === true }
     }
   }
   return out
@@ -835,8 +851,11 @@ function App() {
     }
 
     const refList = [refs.photo, refs.pose, refs.costume, refs.face].filter(Boolean) as string[]
-    // 委婉描述按服务商开关：接入不设限的服务商时关掉，保提示词原样
-    const promptText = effConfig().soft ? softenPrompt(prompt.trim() || autoPrompt(refs)) : prompt.trim() || autoPrompt(refs)
+    // 委婉描述按服务商开关：接入不设限的服务商时关掉，保提示词原样；
+    // 「允许成人向内容」打开时不附加「画面得体」的约束句
+    const conf = effConfig()
+    const rawPrompt = prompt.trim() || autoPrompt(refs)
+    const promptText = conf.soft ? softenPrompt(rawPrompt, !!conf.adult) : rawPrompt
     const base = effBaseUrl().replace(/\/$/, '')
     if (!base) {
       openPanel()
@@ -853,6 +872,7 @@ function App() {
     const key = effKey().trim()
 
     setBusy(true)
+    setCensor(false)
     setStatus({ text: `正在生成图像 · ${meta.label}`, tone: 'busy' })
     try {
       let output = ''
@@ -965,17 +985,22 @@ function App() {
 
       if (output.startsWith('http') || output.startsWith('data:')) {
         setResult(output)
+        setCensor(false)
         setStatus({ text: '生成完成', tone: 'ok' })
       } else {
         setStatus({ text: '响应里没有图像数据', tone: 'err' })
       }
     } catch (err) {
-      setStatus({ text: err instanceof Error ? err.message : `请求失败 · ${String(err)}`, tone: 'err' })
+      const msg = err instanceof Error ? err.message : `请求失败 · ${String(err)}`
+      setCensor(isCensorError(msg))
+      setStatus({ text: msg, tone: 'err' })
     } finally {
       setBusy(false)
     }
   }
 
+  // 最近一次失败是否疑似内容审核拦截：是则在底栏挂醒目提示条
+  const [censor, setCensor] = useState(false)
   const generateRef = useRef(generate)
   generateRef.current = generate
 
@@ -1282,6 +1307,16 @@ function App() {
             </div>
           </div>
 
+          {busy && (
+            <div className="gen-veil" role="status" aria-live="polite">
+              <span className="gen-ring" />
+              <p className="gen-title">正在生成图像 · {activeProvider.label}</p>
+              <p className="gen-sub">
+                请求已发往 {activeProvider.sub || '服务商'}，一般 10–30 秒出图；可以继续浏览，完成后自动载入画板
+              </p>
+            </div>
+          )}
+
           {!canvasSource && (
             <div className="canvas-hint">
               <p className="hint-title">三步开始出图</p>
@@ -1493,17 +1528,22 @@ function App() {
               }
               rows={3}
             />
-            <label className="soft-row" title="生成时自动把提示词改写得含蓄些，并剥掉「不要人/不要皮肤」这类易触发审核的短语；每个服务商各自保存——接入不限制内容的服务商时可以关掉，提示词保持原样">
-              <input
-                type="checkbox"
-                checked={!!effConfig().soft}
-                onChange={(e) => updateProviderConfig(settings.provider, { soft: e.target.checked })}
-              />
-              <span>委婉描述（避开内容审核 · 按服务商各自保存）</span>
-            </label>
           </div>
 
           <div className="inspector-footer">
+            {censor && (
+              <div className="censor-note" role="alert">
+                <div className="censor-head">⛔ 疑似内容审核拦截 · 不是软件故障</div>
+                <p className="censor-body">
+                  服务商的安全审核没有放行这次生成（描述或参考图里有它认为敏感的内容），Key、网络与接口都正常。
+                  可以打开「模型配置」给当前模型开启「委婉描述」（改用含蓄说法，多数能过），
+                  或开启「允许成人向内容」解除得体约束；也可以接入不限制内容的服务商。
+                </p>
+                <button className="key-jump censor-jump" onClick={() => openPanel()}>
+                  打开模型配置调整
+                </button>
+              </div>
+            )}
             <button className={`primary ${!ready && !busy ? 'is-guiding' : ''}`} onClick={runPrimary} disabled={busy}>
               <Icon name={ready ? 'sparkle' : hasKey ? 'library' : 'settings'} size={16} />
               {primaryLabel}
@@ -1521,6 +1561,7 @@ function App() {
           kind={galleryOpen}
           catalog={CATALOGS[galleryOpen]}
           activeCode={refMeta[galleryOpen]?.code ?? ''}
+          hideSensitive={galleryOpen === 'costume' && !effConfig().adult}
           onClose={() => setGalleryOpen(null)}
           onApply={(item, view) => {
             const kind = galleryOpen
@@ -1678,6 +1719,31 @@ function App() {
                   />
                 </div>
                 <div className="field">
+                  <label>内容合规</label>
+                  <div className="panel-check">
+                    <label title="生成时自动把提示词改写得含蓄些，并剥掉「不要人/不要皮肤」这类易触发审核的短语；提示词不再原样发出">
+                      <input
+                        type="checkbox"
+                        checked={!!effConfig(panelMeta.value).soft}
+                        onChange={(e) => updateProviderConfig(panelMeta.value, { soft: e.target.checked })}
+                      />
+                      <span>委婉描述（避开内容审核）</span>
+                    </label>
+                    <label title="不附加「画面得体、可公开展示」的约束句；服装图库会同时显示内衣・睡衣、性感穿搭、泳装・度假等敏感分类">
+                      <input
+                        type="checkbox"
+                        checked={!!effConfig(panelMeta.value).adult}
+                        onChange={(e) => updateProviderConfig(panelMeta.value, { adult: e.target.checked })}
+                      />
+                      <span>允许成人向内容（解除得体约束）</span>
+                    </label>
+                    <p className="help">
+                      只对上面选中的「{panelMeta.label}」生效，各模型互不影响。生成被审核拦下时，开「委婉描述」多数能过；
+                      接入不限制内容的服务商时可以都关掉，提示词保持原样。
+                    </p>
+                  </div>
+                </div>
+                <div className="field">
                   <label>连通性测试</label>
                   <div className="test-row">
                     <button
@@ -1767,12 +1833,14 @@ function RefGallery({
   kind,
   catalog,
   activeCode,
+  hideSensitive,
   onClose,
   onApply
 }: {
   kind: RefKey
   catalog: GalleryCatalog
   activeCode: string
+  hideSensitive?: boolean
   onClose: () => void
   onApply: (item: GalleryItem, view: GalleryView) => void
 }) {
@@ -1797,9 +1865,20 @@ function RefGallery({
   }, [])
 
   const systemItems = useMemo(
-    () => catalog.poses.filter((p) => (catalog.systems.length > 1 ? p.systemId === systemId : true)),
-    [catalog, systemId]
+    () =>
+      catalog.poses.filter(
+        (p) =>
+          (catalog.systems.length > 1 ? p.systemId === systemId : true) &&
+          !(hideSensitive && SENSITIVE_CATEGORIES.includes(p.category))
+      ),
+    [catalog, systemId, hideSensitive]
   )
+
+  // 开关变化后，当前停留的分类可能已被隐藏，退回「全部」避免空列表
+  useEffect(() => {
+    if (!hideSensitive || category === '全部') return
+    if (!systemItems.some((p) => p.category === category)) setCategory('全部')
+  }, [hideSensitive, category, systemItems])
 
   const categories = useMemo(() => {
     const set = new Set(systemItems.map((p) => p.category))
@@ -2054,8 +2133,8 @@ function RefGallery({
 }
 
 // data URI 内存缓存：LRU 上限，防止翻遍三个图库后常驻内存无界增长
-// （一张缩略图 data URI 约 15~30KB，400 张 ≈ 10MB 封顶）
-const THUMB_MEM_MAX = 400
+// （一张缩略图 data URI 约 15~30KB，700 张 ≈ 20MB 封顶，盖住最大图库全套分类）
+const THUMB_MEM_MAX = 700
 const thumbMem = new Map<string, string>()
 
 function cacheThumb(url: string, uri: string) {
@@ -2164,7 +2243,7 @@ function GalleryImage({
             })
         }
       },
-      { rootMargin: '360px' }
+      { rootMargin: '1000px' }
     )
     io.observe(el)
     return () => {
