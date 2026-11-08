@@ -295,6 +295,23 @@ async function openExternal(url: string) {
   }
 }
 
+// 事件日志：生成 / 连通性测试等关键事件追加到应用数据目录的 ziran.log，
+// 方便事后排查「当时为什么没出图」。Key 与请求头一律不落日志：只记长度
+// 与布尔位；错误文本再过一遍脱敏（防止上游把凭据回显进错误消息里）。
+function redact(text: string): string {
+  return text
+    .replace(/(?:sk|rk)-[A-Za-z0-9_-]{6,}/g, (m) => `${m.slice(0, 5)}***`)
+    .replace(/Bearer\s+[A-Za-z0-9._-]{6,}/gi, 'Bearer ***')
+}
+async function logEvent(level: 'info' | 'warn' | 'error', scope: string, message: string) {
+  const ts = new Date().toISOString()
+  try {
+    await invoke('append_log', { line: `${ts} [${level}][${scope}] ${redact(message).slice(0, 600)}` })
+  } catch {
+    // 日志失败绝不影响主流程（纯浏览器开发预览没有 Tauri 后端）
+  }
+}
+
 const DEFAULT_SETTINGS: Settings = { provider: 'ark', ratio: '1:1', configs: {} }
 
 const STORAGE_KEY = 'ziran.settings'
@@ -625,6 +642,7 @@ function App() {
         if (announce) setStatus({ text: '已把默认供应商写入 providers.json，可直接编辑', tone: 'ok' })
       } catch (e) {
         setStatus({ text: `providers.json 写入失败：${String(e)}`, tone: 'err' })
+        void logEvent('error', 'providers', `write failed: ${String(e)}`)
       }
       return
     }
@@ -632,7 +650,9 @@ function App() {
     try {
       parsed = sanitizeProviders(JSON.parse(raw))
     } catch (e) {
-      setStatus({ text: `providers.json 解析失败，已沿用默认（${e instanceof Error ? e.message : String(e)}）`, tone: 'err' })
+      const msg = e instanceof Error ? e.message : String(e)
+      setStatus({ text: `providers.json 解析失败，已沿用默认（${msg}）`, tone: 'err' })
+      void logEvent('error', 'providers', `parse failed: ${msg} raw=${raw.slice(0, 200)}`)
       return
     }
     if (!parsed.length) {
@@ -751,19 +771,23 @@ function App() {
     const meta = providerMeta(value)
     if (!effKey(value).trim()) {
       setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: 0, text: '还没填 API Key' } }))
+      void logEvent('warn', 'test', `provider=${value} aborted: no key`)
       return
     }
     const base = effBaseUrl(value).replace(/\/$/, '')
     if (!base) {
       setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: 0, text: '还没填接口地址' } }))
+      void logEvent('warn', 'test', `provider=${value} aborted: no base url`)
       return
     }
     const model = effModel(value).trim()
     if (!model) {
       setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: 0, text: '还没填模型名' } }))
+      void logEvent('warn', 'test', `provider=${value} aborted: no model`)
       return
     }
     const key = effKey(value).trim()
+    const keyLen = key.length
     const TEST_PROMPT = '纯色背景，极简连通性测试'
     // 1×1 PNG：给编辑类模型（硅基流动 Qwen-Edit 必须带图）凑一个合法参考图入参
     const TEST_IMG =
@@ -822,10 +846,17 @@ function App() {
               : { ok: true, ms, text: `连通正常 · ${(ms / 1000).toFixed(1)}s` }
       setTestOut((prev) => ({ ...prev, [value]: out }))
       setStatus({ text: `${meta.label} ${out.ok ? '连通正常' : '连通失败'} · ${out.text}`, tone: out.ok ? 'ok' : 'err' })
+      void logEvent(
+        out.ok ? 'info' : 'error',
+        'test',
+        `provider=${value} model=${model} keyLen=${keyLen} base=${base} status=${res.status} durMs=${ms} ok=${out.ok} ${out.text}`
+      )
     } catch (err) {
       const text = err instanceof Error ? err.message : `请求失败 · ${String(err)}`
-      setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: Date.now() - t0, text } }))
+      const ms = Date.now() - t0
+      setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms, text } }))
       setStatus({ text: `${meta.label} 连通失败 · ${text}`, tone: 'err' })
+      void logEvent('error', 'test', `provider=${value} model=${model} keyLen=${keyLen} base=${base} durMs=${ms} transport-error ${text}`)
     } finally {
       setTesting(null)
     }
@@ -838,15 +869,18 @@ function App() {
     if (!effKey().trim()) {
       setMissing('key')
       setStatus({ text: `${meta.label} 还没有配置 API Key，请在模型配置里填写`, tone: 'err' })
+      void logEvent('warn', 'generate', `provider=${settings.provider} aborted: no key`)
       openPanel()
       return
     }
     if (meta.refs && !refs.pose && !refs.photo) {
       setStatus({ text: '请先选一个姿势，或上传一张人物照片', tone: 'err' })
+      void logEvent('warn', 'generate', `provider=${settings.provider} aborted: no reference`)
       return
     }
     if (!meta.refs && !prompt.trim()) {
       setStatus({ text: `${meta.label} 只按文字画图，请先写一段描述`, tone: 'err' })
+      void logEvent('warn', 'generate', `provider=${settings.provider} aborted: no prompt`)
       return
     }
 
@@ -874,6 +908,13 @@ function App() {
     setBusy(true)
     setCensor(false)
     setStatus({ text: `正在生成图像 · ${meta.label}`, tone: 'busy' })
+    const startedAt = Date.now()
+    const genLog = (level: 'info' | 'error', rest: string) =>
+      void logEvent(
+        level,
+        'generate',
+        `provider=${settings.provider} model=${model} keyLen=${key.length} base=${base} ratio=${ratio.id} soft=${!!conf.soft} adult=${!!conf.adult} refs=${refList.length} ${rest}`
+      )
     try {
       let output = ''
 
@@ -987,13 +1028,21 @@ function App() {
         setResult(output)
         setCensor(false)
         setStatus({ text: '生成完成', tone: 'ok' })
+        genLog('info', `status=ok durMs=${Date.now() - startedAt}`)
       } else {
         setStatus({ text: '响应里没有图像数据', tone: 'err' })
+        genLog('error', `status=no-image durMs=${Date.now() - startedAt}`)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : `请求失败 · ${String(err)}`
-      setCensor(isCensorError(msg))
-      setStatus({ text: msg, tone: 'err' })
+      const censored = isCensorError(msg)
+      setCensor(censored)
+      const statusMatch = /^生成失败 (\d+)/.exec(msg)
+      genLog(
+        'error',
+        `status=${statusMatch ? statusMatch[1] : 'transport'} durMs=${Date.now() - startedAt} censor=${censored} msg=${msg}`
+      )
+      setStatus({ text: `${msg}（已记入日志）`, tone: 'err' })
     } finally {
       setBusy(false)
     }
@@ -1065,6 +1114,7 @@ function App() {
       await invoke('save_result_image', { path, dataUrl })
       setStatus({ text: `成图已保存：${path}`, tone: 'ok' })
     } catch (e) {
+      void logEvent('error', 'save', `save_result_image failed: ${String(e)} ext=${ext} len=${dataUrl.length}`)
       try {
         const res = await fetch(dataUrl)
         const blob = await res.blob()
@@ -1787,6 +1837,17 @@ function App() {
                 </button>
                 <button className="key-jump" onClick={() => void applyProvidersFile(true)}>
                   重新加载
+                </button>
+                <button
+                  className="key-jump"
+                  title="打开 ziran.log：生成与连通性测试的错误都记录在这里（不含 Key）"
+                  onClick={() =>
+                    invoke('open_log_file')
+                      .then(() => setStatus({ text: 'ziran.log 已在文本编辑器打开', tone: 'ok' }))
+                      .catch(() => setStatus({ text: '没能打开日志文件', tone: 'err' }))
+                  }
+                >
+                  打开日志
                 </button>
                 <button
                   className="key-jump"

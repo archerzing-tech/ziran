@@ -372,6 +372,64 @@ fn edit_config_file(app: tauri::AppHandle, name: String) -> Result<(), String> {
   Ok(())
 }
 
+/// 错误日志：前端把生成失败、连通性测试结果等关键事件追加到应用数据目录的
+/// ziran.log，方便事后排查「当时为什么没出图」。Key、请求头一律不入日志
+/// （由前端脱敏，这里只管追加与轮转）；日志本身留在用户自己的机器上。
+const LOG_FILE: &str = "ziran.log";
+/// 单文件上限：512KB 足够存几千条事件，超过就轮转，防止无限生长
+const LOG_MAX_BYTES: u64 = 512 * 1024;
+
+#[tauri::command]
+fn append_log(app: tauri::AppHandle, line: String) -> Result<(), String> {
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  append_log_line(&dir, &line)
+}
+
+/// 在系统文本编辑器里打开错误日志（没有就先建一个空文件）。
+#[tauri::command]
+fn open_log_file(app: tauri::AppHandle) -> Result<(), String> {
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+  let path = dir.join(LOG_FILE);
+  if !path.exists() {
+    fs::write(&path, "").map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open").arg("-t").arg(&path).spawn().map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "windows")]
+  {
+    std::process::Command::new("notepad").arg(&path).spawn().map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "linux")]
+  {
+    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+  }
+  Ok(())
+}
+
+/// 追加一行日志；超过上限就轮转成 ziran.log.1（只留一代，再超就覆盖），
+/// 保证日志不会无限生长。拆成纯函数便于对轮转逻辑做单元测试。
+fn append_log_line(dir: &std::path::Path, line: &str) -> Result<(), String> {
+  fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+  let path = dir.join(LOG_FILE);
+  if let Ok(meta) = fs::metadata(&path) {
+    if meta.len() > LOG_MAX_BYTES {
+      let rotated = dir.join(format!("{LOG_FILE}.1"));
+      let _ = fs::remove_file(&rotated);
+      fs::rename(&path, &rotated).map_err(|e| e.to_string())?;
+    }
+  }
+  use std::io::Write;
+  let mut f = fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(&path)
+    .map_err(|e| e.to_string())?;
+  writeln!(f, "{line}").map_err(|e| e.to_string())
+}
+
 /// 把成图写进用户在系统保存对话框里选的路径。
 /// webview 对 <a download> 的支持不可靠（WKWebView 经常把它当导航处理），
 /// 所以落盘交给 Rust：前端解出 data: URI，这里校验扩展名白名单后写文件。
@@ -601,6 +659,8 @@ pub fn run() {
       read_config_file,
       write_config_file,
       edit_config_file,
+      append_log,
+      open_log_file,
       open_config_dir,
       save_result_image,
       provider_fetch
@@ -616,6 +676,7 @@ mod tests {
   #[test]
   fn base64_vectors() {
     assert_eq!(base64_encode(b""), "");
+
     assert_eq!(base64_encode(b"f"), "Zg==");
     assert_eq!(base64_encode(b"fo"), "Zm8=");
     assert_eq!(base64_encode(b"foo"), "Zm9v");
@@ -633,6 +694,34 @@ mod tests {
     assert_eq!(base64_decode("Zm9vYmFy").unwrap(), b"foobar");
     assert_eq!(base64_decode("Zg==").unwrap(), b"f");
     assert!(base64_decode("a!c=").is_err());
+  }
+
+  #[test]
+  fn log_appends_and_rotates() {
+    let dir = std::env::temp_dir().join(format!("ziran-log-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    append_log_line(&dir, "line-a").unwrap();
+    append_log_line(&dir, "line-b").unwrap();
+    assert_eq!(fs::read_to_string(dir.join(LOG_FILE)).unwrap(), "line-a\nline-b\n");
+    // 超过上限后再写一条：旧文件轮转成 .1，新文件从零开始
+    let big = "x".repeat((LOG_MAX_BYTES + 1) as usize);
+    append_log_line(&dir, &big).unwrap();
+    append_log_line(&dir, "after-rotate").unwrap();
+    // 轮转搬走的是整个旧文件（含前面的行），新文件从零开始
+    assert_eq!(
+      fs::read_to_string(dir.join(format!("{LOG_FILE}.1"))).unwrap(),
+      format!("line-a\nline-b\n{big}\n")
+    );
+    assert_eq!(fs::read_to_string(dir.join(LOG_FILE)).unwrap(), "after-rotate\n");
+    // 再次超限轮转：旧的 .1 被覆盖，不堆积
+    append_log_line(&dir, &big).unwrap();
+    append_log_line(&dir, "second-rotate").unwrap();
+    assert_eq!(
+      fs::read_to_string(dir.join(format!("{LOG_FILE}.1"))).unwrap(),
+      format!("after-rotate\n{big}\n")
+    );
+    assert_eq!(fs::read_to_string(dir.join(LOG_FILE)).unwrap(), "second-rotate\n");
+    let _ = fs::remove_dir_all(&dir);
   }
 
   #[test]
