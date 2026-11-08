@@ -232,6 +232,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tools="$LOCALAPPDATA/tauri"
+          # 缓存为空（新 key）时目录不存在，curl -o 将无处可写（v0.2.2 就栽在这）
+          mkdir -p "$tools/NSIS"
           fetch() { # fetch <out> <url...>：逐源逐轮退避重试
             local out="$1"; shift
             for i in 1 2 3 4 5 6; do
