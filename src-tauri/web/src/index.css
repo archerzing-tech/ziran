@@ -2511,3 +2511,647 @@ html[data-theme='light'] .inspector::-webkit-scrollbar-thumb {
 html[data-theme='light'] .inspector::-webkit-scrollbar-thumb:hover {
   background: #adadba;
 }
+
+/* =========================== 手机端（html[data-app='phone']） ===========================
+   手机专属界面：隐藏桌面三区（标题栏/工作区/状态栏），铺开「顶栏 +
+   可滚动主区 + 底部三标签」。所有规则只挂在 phone 属性下，桌面布局
+   一行不动。移动手感要点：无点击闪烁、按钮不缩、输入 16px 防触发
+   WebView 自动放大、safe-area 避开系统手势条 */
+
+html[data-app='phone'] .titlebar,
+html[data-app='phone'] .workspace,
+html[data-app='phone'] .statusbar {
+  display: none !important;
+}
+
+html[data-app='phone'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html[data-app='phone'] .shell {
+  height: 100%;
+  height: 100dvh; /* 键盘弹出/收起时跟随可视高度，而不是被视口裁掉 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 顶栏 ---------- */
+
+html[data-app='phone'] .phone-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+html[data-app='phone'] .phone-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+html[data-app='phone'] .phone-api {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  background: transparent;
+}
+
+html[data-app='phone'] .phone-api.is-warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+html[data-app='phone'] .phone-api.is-ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+/* ---------- 主区（三标签的内容，纵向滚动） ---------- */
+
+html[data-app='phone'] .phone-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-app='phone'] .phone-main > * {
+  flex: none;
+}
+
+/* 画板标签占满主区，让画板有尽量大的展示空间 */
+html[data-app='phone'] .phone-main > .phone-board {
+  flex: 1;
+  min-height: 0;
+}
+
+html[data-app='phone'] button,
+html[data-app='phone'] input,
+html[data-app='phone'] textarea,
+html[data-app='phone'] select,
+html[data-app='phone'] label {
+  touch-action: manipulation;
+}
+
+/* 输入类 16px 是 WebView 不自动放大的下限 */
+html[data-app='phone'] input,
+html[data-app='phone'] textarea,
+html[data-app='phone'] select {
+  font-size: 16px;
+}
+
+html[data-app='phone'] .phone-hint {
+  position: static;
+  width: auto;
+  margin: 12px 16px;
+}
+
+/* ---------- 画板标签 ---------- */
+
+html[data-app='phone'] .phone-board {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  background: var(--bg);
+}
+
+/* 参考速选槽：四个方形卡，点空槽直达图库/相册，角 × 一键移除 */
+html[data-app='phone'] .phone-slotrow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 16px 16px 8px;
+  flex: none;
+}
+
+html[data-app='phone'] .phone-slot {
+  position: relative;
+  text-align: center;
+}
+
+html[data-app='phone'] .phone-slot-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text-faint);
+  overflow: hidden;
+}
+
+html[data-app='phone'] .phone-slot.is-active .phone-slot-thumb {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+html[data-app='phone'] .phone-slot.is-loaded .phone-slot-thumb {
+  border-color: var(--line-2);
+  color: var(--text);
+}
+
+html[data-app='phone'] .phone-slot-label {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-app='phone'] .phone-slot-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+}
+
+/* 画幅 chips：横向一行滚动 */
+html[data-app='phone'] .phone-ratios {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+
+html[data-app='phone'] .phone-ratios::-webkit-scrollbar {
+  display: none;
+}
+
+/* 画板本体复用桌面的 .canvas-area，尺寸适配手机：
+   无比例阴影点阵、留白 16px、高度弹性撑满剩余空间 */
+html[data-app='phone'] .phone-canvas {
+  flex: 1;
+  min-height: 300px;
+  padding: 8px 16px;
+  background-color: var(--bg);
+  background-image: radial-gradient(rgba(128, 128, 140, 0.16) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+html[data-app='phone'] .phone-canvas .canvas-hud {
+  bottom: 10px;
+}
+
+html[data-app='phone'] .phone-hint .hint-steps {
+  margin: 8px 0 10px;
+}
+
+/* 参考缩略条与历史条在手机上改为贴边小卡（已选槽已承担选图展示） */
+html[data-app='phone'] .phone-canvas .ref-strip {
+  display: none; /* 参考速选槽已经把已载入图铺在顶部，画板内不再重复 */
+}
+
+/* 描述 + 生成：吸底操作区 */
+html[data-app='phone'] .phone-generate {
+  flex: none;
+  padding: 10px 16px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--chrome);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+html[data-app='phone'] .phone-desc {
+  width: 100%;
+  min-height: 76px;
+  max-height: 40vh;
+  resize: none;
+  line-height: 1.5;
+}
+
+html[data-app='phone'] .phone-generow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+html[data-app='phone'] .phone-desc-toggle {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 48px;
+}
+
+html[data-app='phone'] .phone-desc-toggle .svg,
+html[data-app='phone'] .phone-desc-toggle svg {
+  transition: transform 0.12s;
+}
+
+html[data-app='phone'] .phone-desc-toggle.is-open svg {
+  transform: rotate(90deg);
+}
+
+html[data-app='phone'] .phone-gen {
+  flex: 1;
+  min-height: 48px;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ---------- 模板库标签 ---------- */
+
+html[data-app='phone'] .phone-library {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+html[data-app='phone'] .phone-lib-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  text-align: left;
+  color: var(--text);
+}
+
+html[data-app='phone'] .phone-lib-card:active {
+  transform: scale(0.98);
+}
+
+html[data-app='phone'] .phone-lib-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+
+html[data-app='phone'] .phone-lib-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+html[data-app='phone'] .phone-lib-title {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+html[data-app='phone'] .phone-lib-loaded {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ok);
+}
+
+html[data-app='phone'] .phone-lib-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+html[data-app='phone'] .phone-lib-note {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 0 4px;
+}
+
+/* ---------- 设置标签 ---------- */
+
+html[data-app='phone'] .phone-settings {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+html[data-app='phone'] .phone-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  text-align: left;
+  color: var(--text);
+}
+
+html[data-app='phone'] .phone-row:active {
+  transform: scale(0.98);
+}
+
+html[data-app='phone'] .phone-row-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+html[data-app='phone'] .phone-row-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+html[data-app='phone'] .phone-row-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-app='phone'] .phone-theme-btn {
+  flex: none;
+}
+
+html[data-app='phone'] .phone-about {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---------- 底部标签栏 ---------- */
+
+html[data-app='phone'] .phone-tabbar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--chrome);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  flex: none;
+}
+
+html[data-app='phone'] .phone-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 0 7px;
+  min-height: 54px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  transition: color 0.12s;
+}
+
+html[data-app='phone'] .phone-tab-icon {
+  display: grid;
+  place-items: center;
+  padding: 2px 16px;
+  border-radius: 999px;
+  transition: background 0.12s;
+}
+
+html[data-app='phone'] .phone-tab.is-active .phone-tab-icon {
+  background: var(--accent-soft);
+}
+
+html[data-app='phone'] .phone-tab.is-active {
+  color: var(--accent);
+}
+
+/* ---------- 浮层在手机上展开为全屏 sheet ---------- */
+html[data-app='phone'] .overlay {
+  padding: 0;
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+}
+
+html[data-app='phone'] .gallery {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 手机端图库 sheet：头部允许换行（标题一行、工具一行），侧栏抽成
+   横向滚动的系统 chips，杂志网格铺满整宽 */
+html[data-app='phone'] .gallery-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding: 10px 12px;
+}
+
+html[data-app='phone'] .gallery-title {
+  flex: 1 1 100%;
+}
+
+html[data-app='phone'] .gallery-title h2 {
+  white-space: nowrap;
+}
+
+html[data-app='phone'] .gallery-tools {
+  flex: 1 1 100%;
+}
+
+html[data-app='phone'] .search {
+  flex: 1;
+}
+
+html[data-app='phone'] .gallery-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+html[data-app='phone'] .gallery-body:not(.is-single) .gallery-side {
+  flex-direction: row;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  border-right: none;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
+  gap: 8px;
+  flex: none;
+}
+
+html[data-app='phone'] .gallery-body:not(.is-single) .gallery-side::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-app='phone'] .gallery-body:not(.is-single) .side-item {
+  background: var(--panel-2);
+  border-radius: 999px;
+  padding: 6px 12px;
+  justify-content: center;
+  white-space: nowrap;
+  flex: none;
+}
+
+html[data-app='phone'] .gallery-body:not(.is-single) .side-count {
+  display: none;
+}
+
+html[data-app='phone'] .side-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+html[data-app='phone'] .gallery-main {
+  flex: 1;
+  min-height: 0;
+}
+
+html[data-app='phone'] .gallery-foot {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding: 10px 12px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+html[data-app='phone'] .foot-info {
+  flex: 1 1 100%;
+}
+
+html[data-app='phone'] .foot-credit {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-app='phone'] .gallery-apply {
+  flex: 1;
+  min-height: 44px;
+}
+
+html[data-app='phone'] .pose-grid {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+html[data-app='phone'] .pose-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+html[data-app='phone'] .preview-card,
+html[data-app='phone'] .guide,
+html[data-app='phone'] .model-panel {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html[data-app='phone'] .model-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-app='phone'] .panel-list {
+  max-width: none;
+  max-height: none;
+  flex: none;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 14px;
+  scrollbar-width: none;
+}
+
+html[data-app='phone'] .panel-list::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-app='phone'] .panel-item {
+  flex: none;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+html[data-app='phone'] .panel-item.is-active {
+  border-color: var(--accent);
+}
+
+html[data-app='phone'] .panel-body {
+  display: block;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ---------- toast（状态提示） ---------- */
+
+html[data-app='phone'] .phone-toast {
+  position: fixed;
+  left: 50%;
+  top: calc(60px + env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+  max-width: min(92vw, 480px);
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 40;
+}
+
+html[data-app='phone'] .phone-toast.tone-err {
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+  color: var(--err);
+}
+
+html[data-app='phone'] .phone-toast.tone-ok {
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+  color: var(--ok);
+}
+
+html[data-app='phone'] .phone-toast.tone-warn {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--warn);
+}

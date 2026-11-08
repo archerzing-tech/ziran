@@ -473,6 +473,8 @@ type IconName =
   | 'close'
   | 'search'
   | 'help'
+  | 'pen'
+  | 'camera'
   | 'sun'
   | 'moon'
 
@@ -569,6 +571,13 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="8.2" />
       <path d="M9.6 9.4a2.5 2.5 0 114.1 1.9c-.9.7-1.7 1.1-1.7 2.3M12 16.6v.2" />
     </>
+  ),
+  pen: <path d="M5 15.8l9.9-9.9a1.9 1.9 0 012.7 0l.5.5a1.9 1.9 0 010 2.7l-9.9 9.9-3.9 1zM14.4 6.4l3.2 3.2" />,
+  camera: (
+    <>
+      <path d="M4 9.1A2.1 2.1 0 016.1 7h1.4l1.2-1.9h6.6l1.2 1.9h1.4A2.1 2.1 0 0120 9.1v7.6a2.1 2.1 0 01-2.1 2.1H6.1A2.1 2.1 0 014 16.7z" />
+      <circle cx="12" cy="12.6" r="3.2" />
+    </>
   )
 }
 
@@ -589,6 +598,25 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     </svg>
   )
 }
+
+// 手机端检测：WebView 宽屏桌面窗口仍走桌面布局；窄窗口或触控粗指针
+// （安卓手机平板）走手机专属界面。JSX 分支在 App 内按该值切换。
+const PHONE_MQ = '(max-width: 640px), ((pointer: coarse) and (max-width: 900px))'
+
+function useIsPhone() {
+  const [isPhone, setIsPhone] = useState(() => window.matchMedia(PHONE_MQ).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_MQ)
+    const onChange = () => setIsPhone(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return isPhone
+}
+
+// 手机端的三个底部标签与「模板库」当前展开的库，状态放 App 顶层、
+// 两个分支共用，来回切换不丢已选参考与搜索词
+type PhoneTab = 'board' | 'library' | 'settings'
 
 function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings)
@@ -625,6 +653,13 @@ function App() {
   const [autoFit, setAutoFit] = useState(true)
   const areaRef = useRef<HTMLDivElement | null>(null)
 
+  const isPhone = useIsPhone()
+  const [phoneTab, setPhoneTab] = useState<PhoneTab>('board')
+  const [phoneDescOpen, setPhoneDescOpen] = useState(false)
+  // 照片槽的隐藏 file input；toast 在新状态提示出现时复位显示
+  const phonePhotoInputRef = useRef<HTMLInputElement | null>(null)
+  const [phoneToastHidden, setPhoneToastHidden] = useState(false)
+
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
@@ -637,6 +672,20 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme
   }, [settings.theme])
+
+  // 手机端整体切换也挂在 <html data-app> 上：手机段 CSS 只在这个属性下生效，
+  // 桌面布局的规则一行不动
+  useEffect(() => {
+    document.documentElement.dataset.app = isPhone ? 'phone' : 'desktop'
+  }, [isPhone])
+
+  // 新状态提示出现时 toast 重新亮相，4 秒后自动收起（也可点 × 立即收起）
+  useEffect(() => {
+    setPhoneToastHidden(false)
+    if (!status.text) return
+    const t = setTimeout(() => setPhoneToastHidden(true), 4000)
+    return () => clearTimeout(t)
+  }, [status])
 
   // 启动时把本地生成历史拉进来自动填充切换条（后端不在则静默跳过；
   // 兜底 Array.isArray：桩/异常路径返回 null 时不能把列表打成 null）
@@ -737,13 +786,24 @@ function App() {
       const histH = area.querySelector<HTMLElement>('.history-strip')?.offsetHeight || 0
       const layoutTop = stripH > 0 ? stripH + 20 : Math.max(0, (areaH - boardH) / 2)
       const bottomPad = histH > 0 ? histH + 26 : 26
-      const fit = Math.min((area.clientWidth - 96) / boardW, (areaH - layoutTop - bottomPad) / boardH)
+      // 手机端画板区左右只有 16px 内边距，桌面是 48px 两侧留白，扣除量不同
+      const sideInset = document.documentElement.dataset.app === 'phone' ? 32 : 96
+      const fit = Math.min((area.clientWidth - sideInset) / boardW, (areaH - layoutTop - bottomPad) / boardH)
       setZoom(Math.max(0.2, Math.min(1.6, Number(fit.toFixed(2)))))
     }
     compute()
+    // 初帧的 flex/resize 布局可能还没落定（手机端 data-app 切换、字体加载），
+    // 两帧后再校一次，避免首帧量到异常值被钳在缩放下限
+    let raf = 0
+    raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(compute)
+    })
     window.addEventListener('resize', compute)
-    return () => window.removeEventListener('resize', compute)
-  }, [autoFit, boardW, boardH])
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', compute)
+    }
+  }, [autoFit, boardW, boardH, isPhone])
 
   const update = (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch }))
   // 每供应商独立配置的读取：Key 各用各的；模型/地址留空就跟随该供应商默认
@@ -1343,8 +1403,360 @@ function App() {
         : `${REF_META[active].name}参考`
       : '空画板'
 
+  /* ---------- 手机端：与桌面共用的画板积木 ---------- */
+
+  // 画板本体：桌面（.canvas-area 内）与手机（phone-canvas）渲染同一份
+  // JSX——缩放变换、空态、下载按钮、缩放工具条都只有一处代码
+  const renderArtboard = () => (
+    <div className="artboard-shadow" style={{ transform: `scale(${zoom})` }}>
+      <div className="artboard" style={{ width: boardW, height: boardH }}>
+        <div className="checker" />
+        {grid && <div className="artboard-grid" />}
+        {canvasSource && (
+          <img
+            className="artboard-image"
+            src={canvasSource}
+            alt={canvasLabel}
+            onLoad={(e) => setSrcDims({ w: e.currentTarget.naturalWidth || 1, h: e.currentTarget.naturalHeight || 1 })}
+          />
+        )}
+        {!canvasSource && (
+          <div className={`empty ${boardBusy ? 'is-loading' : ''}`}>
+            <Icon name="image" size={30} />
+          </div>
+        )}
+        <span className="artboard-tag">{canvasLabel}</span>
+        {!result && boardBusy && canvasSource && (
+          <span className="board-upgrading">高清原图加载中…</span>
+        )}
+        {/* 保存按钮直接浮在成图图层上：平时隐形，悬停画板才现身；
+            反向缩放抵消画板的 transform，按钮大小不随 zoom 变 */}
+        {result && (
+          <button
+            className="artboard-download"
+            title="保存成图（⌘S）"
+            onClick={saveResult}
+            style={{ transform: `scale(${Number((1 / zoom).toFixed(3))})` }}
+          >
+            <Icon name="download" size={15} />
+          </button>
+        )}
+        {/* 缩放工具条：浮在图片图层底部内侧（半透明胶囊）。transform 同时做
+            居中定位与反向缩放（抵消画板 scale，钳制 0.9–1.25 倍，文字大小始终接近原大） */}
+        <div
+          className="canvas-hud"
+          style={{
+            transform: `translateX(-50%) scale(${Number(Math.max(0.9, Math.min(1.25, 1 / zoom)).toFixed(3))})`,
+          }}
+        >
+          <button className="hud-btn" onClick={() => bumpZoom(-0.1)} title="缩小">
+            <Icon name="zoomOut" size={16} />
+          </button>
+          <button className="hud-zoom" onClick={() => setAutoFit(true)} title="适应窗口">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button className="hud-btn" onClick={() => bumpZoom(0.1)} title="放大">
+            <Icon name="zoomIn" size={16} />
+          </button>
+          <span className="hud-sep" />
+          <span className="hud-meta">{activeRatio.size.replace('x', ' × ')}</span>
+        </div>
+      </div>
+    </div>
+  )
+
+  // 生成历史切换条：多于一张才显示（一张没有切换的意义）。
+  // viewingHistory 为 null（刚生成完）时高亮最新一张。
+  const renderHistoryStrip = () => (
+    <div className="history-strip" aria-label="生成历史">
+      {history.map((h) => {
+        const isCurrent = viewingHistory === h.id || (viewingHistory === null && h.id === history[0].id)
+        return (
+          <button
+            key={h.id}
+            className={`history-card${isCurrent ? ' is-current' : ''}`}
+            title={`${historyTime(h.created)} · ${h.provider} ${h.model}${isCurrent ? ' · 当前' : ''}`}
+            onClick={() => void viewHistory(h)}
+          >
+            <HistoryThumb id={h.id} />
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const renderGenVeil = () => (
+    <div className="gen-veil" role="status" aria-live="polite">
+      <span className="gen-ring" />
+      <p className="gen-title">正在生成图像 · {activeProvider.label}</p>
+      <p className="gen-sub">
+        请求已发往 {activeProvider.sub || '服务商'}，一般 10–30 秒出图；可以继续浏览，完成后自动载入画板
+      </p>
+    </div>
+  )
+
+  /* ---------- 手机端：三标签底部导航的专属界面 ---------- */
+  // 参考速选槽：点空槽 = 直接进图库（照片槽直接开相册），点已载入 = 预览大图，
+  // 角上的 × = 移除。入口全部来自画板一屏，不用进一层。
+
+  const renderPhoneBoard = () => (
+    <div className="phone-board">
+      <div className="phone-slotrow">
+        {(Object.keys(REF_META) as RefKey[]).map((k) => {
+          const has = Boolean(refs[k])
+          const isCatalog = Boolean(CATALOGS[k])
+          return (
+            <div key={k} className={`phone-slot ${has ? 'is-loaded' : ''} ${active === k ? 'is-active' : ''}`}>
+              <button
+                className="phone-slot-thumb"
+                onClick={() => {
+                  setActive(k)
+                  if (refs[k]) {
+                    setPreview({ src: refs[k] as string, title: REF_META[k].name })
+                  } else if (isCatalog) {
+                    setGalleryOpen(k)
+                  } else {
+                    phonePhotoInputRef.current?.click()
+                  }
+                }}
+                aria-label={has ? `查看 ${REF_META[k].name}` : `选择${REF_META[k].name}`}
+              >
+                {has ? <RefThumb url={refs[k]} kind={k} /> : <Icon name={isCatalog ? 'plus' : 'camera'} size={20} />}
+              </button>
+              <span className="phone-slot-label">
+                {refMeta[k] && has ? refMeta[k]!.code : REF_META[k].name}
+              </span>
+              <button
+                className="phone-slot-x"
+                style={{ visibility: has ? 'visible' : 'hidden' }}
+                disabled={!has}
+                onClick={() => setRefs((prev) => ({ ...prev, [k]: null }))}
+                aria-label={`移除${REF_META[k].name}`}
+              >
+                <Icon name="close" size={10} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="phone-ratios">
+        {RATIOS.map((r) => (
+          <button
+            key={r.id}
+            className={`chip ${settings.ratio === r.id ? 'is-active' : ''}`}
+            onClick={() => update({ ratio: r.id })}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      <section
+        className="canvas-area phone-canvas"
+        ref={areaRef}
+      >
+        {renderArtboard()}
+        {history.length > 1 && renderHistoryStrip()}
+        {busy && renderGenVeil()}
+        {!canvasSource && (
+          <div className="canvas-hint phone-hint">
+            <p className="hint-title">三步开始出图</p>
+            <ol className="hint-steps">
+              <li className={hasKey ? 'is-done' : ''}>
+                <span className="hint-num">{hasKey ? <Icon name="check" size={10} /> : 1}</span>
+                配置模型{hasKey ? <em>已完成</em> : <em>必填</em>}
+              </li>
+              <li className={step2Done ? 'is-done' : ''}>
+                <span className="hint-num">{step2Done ? <Icon name="check" size={10} /> : 2}</span>
+                {activeProvider.refs ? '选姿势 / 传照片' : '写一段描述'}
+                {step2Done ? <em>{activeProvider.refs ? '已选' : '已写'}</em> : <em>必填</em>}
+              </li>
+              <li className={ready ? '' : 'is-muted'}>
+                <span className="hint-num">3</span>
+                点“生成图像”
+              </li>
+            </ol>
+            <button
+              className="ghost-btn"
+              onClick={() => (hasKey ? setGalleryOpen('pose') : openPanel())}
+            >
+              <Icon name={hasKey ? 'library' : 'settings'} size={14} />
+              {hasKey ? '打开姿势图库' : '去配置模型'}
+            </button>
+          </div>
+        )}
+      </section>
+
+      <div className="phone-generate">
+        {phoneDescOpen && (
+          <textarea
+            className="input phone-desc"
+            rows={3}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder={
+              activeProvider.refs
+                ? '不填也行，默认沿用参考图里的人物、服装和姿势'
+                : `描述要画什么，例如：一位穿冲锋衣的年轻女性站在雪山下`
+            }
+          />
+        )}
+        <div className="phone-generow">
+          <button
+            className={`ghost-btn phone-desc-toggle ${phoneDescOpen ? 'is-open' : ''}`}
+            onClick={() => setPhoneDescOpen((v) => !v)}
+            aria-expanded={phoneDescOpen}
+          >
+            <Icon name="pen" size={14} />
+            {activeProvider.refs ? '描述' : '描述 · 必填'}
+            <Icon name="chevron" size={12} />
+          </button>
+          <button className="primary phone-gen" onClick={runPrimary} disabled={busy}>
+            <Icon name={busy ? 'check' : 'sparkle'} size={16} />
+            {primaryLabel}
+          </button>
+        </div>
+        <input
+          type="file"
+          accept="image/*"
+          hidden
+          ref={phonePhotoInputRef}
+          onChange={async (e) => {
+            await pickFile(e.target.files?.[0], 'photo')
+            e.target.value = ''
+          }}
+        />
+      </div>
+    </div>
+  )
+
+  // 模板库标签：三个图库的大卡入口，点卡片即铺开全屏 sheet 图库
+  const renderPhoneLibrary = () => (
+    <div className="phone-library">
+      {(['pose', 'costume', 'face'] as RefKey[]).map((k) => (
+        <button key={k} className="phone-lib-card" onClick={() => setGalleryOpen(k)}>
+          <span className="phone-lib-icon">
+            <Icon name={k === 'pose' ? k : k === 'costume' ? 'shirt' : 'face'} size={22} />
+          </span>
+          <span className="phone-lib-text">
+            <span className="phone-lib-title">
+              {REF_META[k].name}图库
+              {refMeta[k] && (
+                <span className="phone-lib-loaded">已用 {refMeta[k]!.code}</span>
+              )}
+            </span>
+            <span className="phone-lib-sub">{REF_META[k].hint}</span>
+          </span>
+          <Icon name="chevron" size={16} />
+        </button>
+      ))}
+      <p className="phone-lib-note">
+        图库浏览已自动转存刚浏览过的缩略图到本机，离线重开也是秒开。
+      </p>
+    </div>
+  )
+
+  // 设置标签：模型、说明、外观三行入口，模型配置展开为全屏 sheet
+  const renderPhoneSettings = () => (
+    <div className="phone-settings">
+      <button className="phone-row" onClick={() => openPanel()}>
+        <Icon name="key" size={17} />
+        <span className="phone-row-text">
+          <span className="phone-row-title">模型与 API Key</span>
+          <span className="phone-row-sub">
+            {activeProvider.label} · {effModel()}
+          </span>
+        </span>
+        <Icon name="chevron" size={15} />
+      </button>
+      <button className="phone-row" onClick={() => setShowGuide(true)}>
+        <Icon name="help" size={17} />
+        <span className="phone-row-text">
+          <span className="phone-row-title">使用说明</span>
+          <span className="phone-row-sub">三步就能出图</span>
+        </span>
+        <Icon name="chevron" size={15} />
+      </button>
+      <div className="phone-row is-static">
+        <Icon name={settings.theme === 'light' ? 'sun' : 'moon'} size={17} />
+        <span className="phone-row-text">
+          <span className="phone-row-title">外观</span>
+          <span className="phone-row-sub">{settings.theme === 'light' ? '亮色主题' : '暗色主题'}</span>
+        </span>
+        <button
+          className="icon-btn phone-theme-btn"
+          onClick={() => update({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
+        >
+          <Icon name={settings.theme === 'light' ? 'moon' : 'sun'} size={17} />
+        </button>
+      </div>
+      <p className="phone-about">
+        Ziran 桌面版 v{__APP_VERSION__} · API Key 只存本机
+      </p>
+    </div>
+  )
+
+  const renderPhoneChrome = () => (
+    <>
+      <header className="phone-topbar">
+        <div className="phone-brand">
+          <svg className="brand-mark" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2.6l9.4 9.4-9.4 9.4L2.6 12z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M12 7.4l4.6 4.6-4.6 4.6L7.4 12z" fill="currentColor" />
+          </svg>
+          <span className="brand-name">Ziran</span>
+        </div>
+        <span className={`phone-api ${hasKey ? 'is-ok' : 'is-warn'}`} onClick={() => setPhoneTab('settings')}>
+          <Icon name="key" size={13} />
+          {hasKey ? 'API 就绪' : '配置 Key'}
+        </span>
+        <button
+          className="icon-btn"
+          title={settings.theme === 'light' ? '切换到暗色' : '切换到亮色'}
+          onClick={() => update({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
+        >
+          <Icon name={settings.theme === 'light' ? 'moon' : 'sun'} size={17} />
+        </button>
+      </header>
+
+      <div className="phone-main">
+        {phoneTab === 'board' && renderPhoneBoard()}
+        {phoneTab === 'library' && renderPhoneLibrary()}
+        {phoneTab === 'settings' && renderPhoneSettings()}
+      </div>
+
+      <nav className="phone-tabbar" aria-label="主导航">
+        {([['board', '画板', 'image'], ['library', '模板库', 'library'], ['settings', '设置', 'settings']] as [PhoneTab, string, IconName][]).map(
+          ([tab, label, icon]) => (
+            <button
+              key={tab}
+              className={`phone-tab ${phoneTab === tab ? 'is-active' : ''}`}
+              onClick={() => setPhoneTab(tab)}
+            >
+              <span className="phone-tab-icon">
+                <Icon name={icon} size={20} />
+              </span>
+              <span className="phone-tab-label">{label}</span>
+            </button>
+          )
+        )}
+      </nav>
+
+      {status.text && status.text !== '就绪' && !phoneToastHidden && (
+        <button className={`phone-toast tone-${status.tone}`} onClick={() => setPhoneToastHidden(true)}>
+          {status.text}
+        </button>
+      )}
+    </>
+  )
+
   return (
     <div className="shell">
+      {/* 手机端专属界面：坐标在 CSS 的手机段里（桌面三区按 isPhone 不再挂载） */}
+      {isPhone && renderPhoneChrome()}
+
+      {!isPhone && (
       <header className="titlebar">
         <div className="brand">
           <svg className="brand-mark" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -1385,6 +1797,9 @@ function App() {
         </div>
       </header>
 
+      )}
+
+      {!isPhone && (
       <div className="workspace">
         <nav className="rail">
           <div className="rail-group">
@@ -1456,91 +1871,13 @@ function App() {
             </div>
           )}
 
-          <div className="artboard-shadow" style={{ transform: `scale(${zoom})` }}>
-            <div className="artboard" style={{ width: boardW, height: boardH }}>
-              <div className="checker" />
-              {grid && <div className="artboard-grid" />}
-              {canvasSource && (
-                <img
-                  className="artboard-image"
-                  src={canvasSource}
-                  alt={canvasLabel}
-                  onLoad={(e) => setSrcDims({ w: e.currentTarget.naturalWidth || 1, h: e.currentTarget.naturalHeight || 1 })}
-                />
-              )}
-              {!canvasSource && (
-                <div className={`empty ${boardBusy ? 'is-loading' : ''}`}>
-                  <Icon name="image" size={30} />
-                </div>
-              )}
-              <span className="artboard-tag">{canvasLabel}</span>
-              {!result && boardBusy && canvasSource && (
-                <span className="board-upgrading">高清原图加载中…</span>
-              )}
-              {/* 保存按钮直接浮在成图图层上：平时隐形，悬停画板才现身；
-                  反向缩放抵消画板的 transform，按钮大小不随 zoom 变 */}
-              {result && (
-                <button
-                  className="artboard-download"
-                  title="保存成图（⌘S）"
-                  onClick={saveResult}
-                  style={{ transform: `scale(${Number((1 / zoom).toFixed(3))})` }}
-                >
-                  <Icon name="download" size={15} />
-                </button>
-              )}
-              {/* 缩放工具条：浮在图片图层底部内侧（半透明胶囊）。transform 同时做
-                  居中定位与反向缩放（抵消画板 scale，钳制 0.9–1.25 倍，文字大小始终接近原大） */}
-              <div
-                className="canvas-hud"
-                style={{
-                  transform: `translateX(-50%) scale(${Number(Math.max(0.9, Math.min(1.25, 1 / zoom)).toFixed(3))})`,
-                }}
-              >
-                <button className="hud-btn" onClick={() => bumpZoom(-0.1)} title="缩小">
-                  <Icon name="zoomOut" size={16} />
-                </button>
-                <button className="hud-zoom" onClick={() => setAutoFit(true)} title="适应窗口">
-                  {Math.round(zoom * 100)}%
-                </button>
-                <button className="hud-btn" onClick={() => bumpZoom(0.1)} title="放大">
-                  <Icon name="zoomIn" size={16} />
-                </button>
-                <span className="hud-sep" />
-                <span className="hud-meta">{activeRatio.size.replace('x', ' × ')}</span>
-              </div>
-            </div>
-          </div>
+          {renderArtboard()}
 
           {/* 生成历史切换条：多于一张才显示（一张没有切换的意义）。
               viewingHistory 为 null（刚生成完）时高亮最新一张。 */}
-          {history.length > 1 && (
-            <div className="history-strip" aria-label="生成历史">
-              {history.map((h) => {
-                const isCurrent = viewingHistory === h.id || (viewingHistory === null && h.id === history[0].id)
-                return (
-                  <button
-                    key={h.id}
-                    className={`history-card${isCurrent ? ' is-current' : ''}`}
-                    title={`${historyTime(h.created)} · ${h.provider} ${h.model}${isCurrent ? ' · 当前' : ''}`}
-                    onClick={() => void viewHistory(h)}
-                  >
-                    <HistoryThumb id={h.id} />
-                  </button>
-                )
-              })}
-            </div>
-          )}
+          {history.length > 1 && renderHistoryStrip()}
 
-          {busy && (
-            <div className="gen-veil" role="status" aria-live="polite">
-              <span className="gen-ring" />
-              <p className="gen-title">正在生成图像 · {activeProvider.label}</p>
-              <p className="gen-sub">
-                请求已发往 {activeProvider.sub || '服务商'}，一般 10–30 秒出图；可以继续浏览，完成后自动载入画板
-              </p>
-            </div>
-          )}
+          {busy && renderGenVeil()}
 
           {!canvasSource && (
             <div className="canvas-hint">
@@ -1762,6 +2099,7 @@ function App() {
           </div>
         </aside>
       </div>
+      )}
 
       {galleryOpen && (
         <RefGallery
@@ -1782,6 +2120,7 @@ function App() {
             setMissing(null)
             setGalleryOpen(null)
             setStatus({ text: `已载入${REF_META[kind].name} ${item.code} ${item.name}${view.angle && view.angle !== '参考' ? ` · ${view.angle}` : ''}`, tone: 'ok' })
+            if (isPhone) setPhoneTab('board')
           }}
         />
       )}
@@ -2029,6 +2368,7 @@ function App() {
         </div>
       )}
 
+      {!isPhone && (
       <footer className="statusbar">
         <div className="status-left">
           <span className={`dot dot-${status.tone}`} />
@@ -2046,6 +2386,7 @@ function App() {
           <span className="mono">v{__APP_VERSION__}</span>
         </div>
       </footer>
+      )}
     </div>
   )
 }
