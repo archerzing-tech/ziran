@@ -8,17 +8,31 @@
 参考图库、提示词、多家模型供应商开箱即用；API Key 与图片缓存只存在你自己的电脑里。
 
 [![CI](https://github.com/archerzing-tech/ziran/actions/workflows/ci.yml/badge.svg)](https://github.com/archerzing-tech/ziran/actions/workflows/ci.yml)
-[![Release](https://github.com/archerzing-tech/ziran/actions/workflows/release.yml/badge.svg)](https://github.com/archerzing-tech/ziran/releases)
+[![Release](https://github.com/archerzing-tech/ziran/actions/workflows/release.yml/badge.svg)](https://github.com/archerzing-tech/ziran/actions/workflows/releases)
 
 </div>
 
 ---
 
-## 截图
+## 界面一览
 
-**传一张照片、挑一张姿势，出一张成图** —— 画板上已载入一张坐姿线稿参考（内置姿势图库按坐姿/站姿/躺卧等分类，98 张人体线稿）：
+亮色 / 暗色两套主题，标题栏一键切换，随时切、随时记：
 
-<img src="docs/screenshots/main.png" width="820" alt="Ziran 工作台：坐姿参考已载入画板，右侧选模型、配参考、点生成">
+| 亮色 | 暗色 |
+|---|---|
+| <img src="docs/screenshots/light.png" width="100%" alt="Ziran 亮色主题：照片已上参考条，成图铺满画板，右侧选模型、配参考、点生成"> | <img src="docs/screenshots/dark.png" width="100%" alt="Ziran 暗色主题：同一套布局，成图在深色画布上更聚焦"> |
+
+画板周围的三件小事，都为「不挡图」设计：
+
+- **顶部参考缩略条** —— 已选的照片 / 姿势 / 服装以小卡贴着画布上缘居中摆放，不遮成图；卡上只有缩略图，悬停看名称，点击放大预览。
+- **图上缩放工具条** —— 缩小 / 适应窗口 / 放大和当前百分比，半透明毛玻璃浮在成图下缘，文字始终清晰；画板从顶部锚定缩放，放大只向下长，不会盖住参考条。
+- **生成历史胶片条** —— 本次会话的成图排在画板左下，点击回看切换；悬停画板右上现下载按钮，一键保存 PNG。
+
+## 三步出图
+
+1. **选模型** —— 挑一家供应商，点「一键前往申请页」拿 API Key 粘贴进来（只存本机，自动保存）。
+2. **选参考** —— 传一张人物照片，再从姿势图库挑一张姿势；服装、人脸可选，加了更像。
+3. **点生成** —— 成图直接铺满画板，按成图比例走，不裁剪参考；不满意就再点一次，历史里随时回看。
 
 ## 功能
 
@@ -43,7 +57,7 @@
   选好供应商后可直接点"一键前往申请页"打开对应的 Key 申请入口；Key 只保存在本机。
 - **自动提示词**：按你已选的参考组合（照片/姿势/服装/人脸）自动拼装出图指令，也可以手动改写。
 - **五种画幅**：1:1 / 3:4 / 4:3 / 9:16 / 16:9；成图按图片实际比例铺满画板，不留黑边。
-- **生成历史**：本次会话的成图保留在画板历史里，可回看切换。
+- **亮 / 暗双主题**：标题栏太阳 / 月亮一键切换，选择自动记忆；叠加在图片上的浮层（工具条、标签、缩略卡）两种主题都保持深色，保证在成图上可读。
 
 ## 安装
 
@@ -58,12 +72,6 @@
 - `x64-setup.exe` → 64 位安装包（推荐）
 - `x64_en-US.msi` → MSI 备用
 - 系统缺 WebView2 运行时时，安装器会自动下载安装（需联网）
-
-## 使用
-
-1. **填 Key**：选一家供应商，点"一键前往申请页"拿 API Key，粘贴进输入框（只存本机，自动保存）。
-2. **选参考**：上传一张人物照片（或选一张人脸），再从姿势图库挑一张姿势；服装、人脸可选，加了更像。
-3. **生成**：点"生成图像"。成图出现在左侧画板，按成图比例铺满，不裁剪参考。
 
 ## 开发
 
