@@ -119,7 +119,7 @@ const DEFAULT_PROVIDERS: ProviderDef[] = [
     sub: 'OpenAI 兼容',
     model: '',
     baseUrl: '',
-    desc: '任何 OpenAI 兼容接口都能填：中转站、ComfyUI 网关、自建代理。',
+    desc: '任何 OpenAI 兼容接口都能填：中转站、ComfyUI 网关、自建代理。接口地址填根地址即可，粘成完整端点会自动纠正。',
     keyUrl: '',
     keyHint: '填写服务商给你的 Base URL 与模型名',
     refs: true,
@@ -638,7 +638,10 @@ function App() {
   // 每供应商独立配置的读取：Key 各用各的；模型/地址留空就跟随该供应商默认
   const effConfig = (value: string): ProviderUserConfig => settings.configs[value] ?? EMPTY_PCONF
   const effModel = (value: string = settings.provider) => effConfig(value).model.trim() || providerMeta(value).model
-  const effBaseUrl = (value: string = settings.provider) => effConfig(value).baseUrl.trim() || providerMeta(value).baseUrl
+  // 地址只填根地址；用户把完整端点（…/images/generations|edits）粘进来也能用——
+  // 本应用生成时自己拼这个尾巴，不剥掉会变成双重路径（实测方舟返回 500）
+  const effBaseUrl = (value: string = settings.provider) =>
+    effConfig(value).baseUrl.trim().replace(/\/(images\/generations|images\/edits)\/?$/, '') || providerMeta(value).baseUrl
   const effKey = (value: string = settings.provider) => effConfig(value).apiKey
   const updateProviderConfig = (value: string, patch: Partial<ProviderUserConfig>) =>
     setSettings((prev) => ({
