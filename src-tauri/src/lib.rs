@@ -29,6 +29,32 @@ fn base64_encode(data: &[u8]) -> String {
   out
 }
 
+fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
+  let mut table = [255u8; 256];
+  for (i, &c) in B64.iter().enumerate() {
+    table[c as usize] = i as u8;
+  }
+  let mut out = Vec::with_capacity(s.len() / 4 * 3);
+  let mut buf = 0u32;
+  let mut bits = 0u32;
+  for &c in s.as_bytes() {
+    if c == b'=' {
+      break;
+    }
+    let v = table[c as usize];
+    if v == 255 {
+      return Err(format!("invalid base64 character: {}", c as char));
+    }
+    buf = (buf << 6) | v as u32;
+    bits += 6;
+    if bits >= 8 {
+      bits -= 8;
+      out.push((buf >> bits) as u8);
+    }
+  }
+  Ok(out)
+}
+
 fn mime_of(url: &str) -> &'static str {
   let path = url.split(['?', '#']).next().unwrap_or("");
   match path.rsplit('.').next() {
@@ -346,6 +372,35 @@ fn edit_config_file(app: tauri::AppHandle, name: String) -> Result<(), String> {
   Ok(())
 }
 
+/// 把成图写进用户在系统保存对话框里选的路径。
+/// webview 对 <a download> 的支持不可靠（WKWebView 经常把它当导航处理），
+/// 所以落盘交给 Rust：前端解出 data: URI，这里校验扩展名白名单后写文件。
+#[tauri::command]
+fn save_result_image(path: String, data_url: String) -> Result<String, String> {
+  let rest = data_url
+    .strip_prefix("data:image/")
+    .ok_or("not an image data url")?;
+  let (mime, b64) = rest
+    .split_once(";base64,")
+    .ok_or("data url has no base64 payload")?;
+  let ext = match mime {
+    "png" => "png",
+    "jpeg" => "jpg",
+    "webp" => "webp",
+    "gif" => "gif",
+    other => return Err(format!("unsupported image type: {other}")),
+  };
+  if !path.to_lowercase().ends_with(&format!(".{ext}")) {
+    return Err(format!("保存文件名需要以 .{ext} 结尾（图片实际是 {mime} 格式）"));
+  }
+  let bytes = base64_decode(b64)?;
+  if bytes.is_empty() {
+    return Err("image payload is empty".into());
+  }
+  fs::write(&path, &bytes).map_err(|e| format!("写入失败：{e}"))?;
+  Ok(path)
+}
+
 /// 在系统文件管理器里打开配置目录
 #[tauri::command]
 fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
@@ -408,6 +463,7 @@ fn open_url(url: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       // the old file-based cache is superseded by the SQLite store
       let _ = fs::remove_dir_all(app.path().app_cache_dir()?.join("gallery"));
@@ -430,7 +486,8 @@ pub fn run() {
       read_config_file,
       write_config_file,
       edit_config_file,
-      open_config_dir
+      open_config_dir,
+      save_result_image
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -449,6 +506,37 @@ mod tests {
     assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
     assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
     assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+  }
+
+  #[test]
+  fn base64_roundtrip_and_reject() {
+    let data: Vec<u8> = (0..=255u8).collect();
+    let decoded = base64_decode(&base64_encode(&data)).unwrap();
+    assert_eq!(decoded, data);
+    // 带 padding 的独立解码也要正确
+    assert_eq!(base64_decode("Zm9vYmFy").unwrap(), b"foobar");
+    assert_eq!(base64_decode("Zg==").unwrap(), b"f");
+    assert!(base64_decode("a!c=").is_err());
+  }
+
+  #[test]
+  fn save_result_image_guard_rails() {
+    let png = format!("data:image/png;base64,{}", base64_encode(b"png-bytes"));
+    // 错扩展名 → 拒绝且不落盘
+    let err = save_result_image("/tmp/x.jpg".into(), png.clone()).err().unwrap();
+    assert!(err.contains(".png"));
+    // 非 image/ 开头的 data url → 拒绝
+    let err = save_result_image("/tmp/x.png".into(), "data:text/plain;base64,AA".into()).err().unwrap();
+    assert!(err.contains("not an image"));
+    // 类型白名单（svg 不在列）
+    let err = save_result_image("/tmp/x.png".into(), "data:image/svg+xml;base64,AA".into()).err().unwrap();
+    assert!(err.contains("unsupported"));
+    // 真实落盘：系统临时目录
+    let path = std::env::temp_dir().join("ziran-test-save.png");
+    let ok = save_result_image(path.to_string_lossy().into_owned(), png).unwrap();
+    assert_eq!(ok, path.to_string_lossy());
+    assert_eq!(std::fs::read(&path).unwrap(), b"png-bytes");
+    let _ = std::fs::remove_file(&path);
   }
 
   #[test]

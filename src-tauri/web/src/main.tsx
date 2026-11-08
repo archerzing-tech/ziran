@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { invoke } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
 import poseCatalogJson from './data/poses.json'
 import costumeCatalogJson from './data/costumes.json'
 import faceCatalogJson from './data/faces.json'
@@ -851,26 +852,61 @@ function App() {
     }
   }
 
-  // 保存成图：data: 直接落盘；远端 URL 先取回成 blob 再落盘
-  // （<a download> 跨域会被浏览器忽略，点击会把整个窗口跳走变成一张图）
+  // 保存成图：系统保存对话框 + Rust 落盘。webview 对 <a download> 的支持
+  // 不可靠（WKWebView 常把它当页面导航），落盘这件事交给后端才稳。
+  // 远端 URL 先借 Rust 的下载缓存通道转成 data: URI（前端 fetch 会撞 CORS）；
+  // 纯浏览器开发预览没有对话框，退回老的 <a download> 路径。
   const saveResult = async () => {
     if (!result) return
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
+    let dataUrl = result
+    if (!dataUrl.startsWith('data:image/')) {
+      try {
+        dataUrl = await invoke<string>('image_data_uri', { url: result, kind: 'result' })
+      } catch {
+        // 转不出来就只能走浏览器兜底
+      }
+    }
+    const ext = /^data:image\/(png|jpeg|webp|gif)/.exec(dataUrl)?.[1]?.replace('jpeg', 'jpg') ?? 'png'
     try {
-      const res = await fetch(result)
-      if (!res.ok) throw new Error(String(res.status))
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `ziran-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.png`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 4000)
-      setStatus({ text: '已开始下载成图', tone: 'ok' })
-    } catch {
-      openExternal(result)
-      setStatus({ text: '无法直接保存，已在系统浏览器打开图片，可右键另存', tone: 'neutral' })
+      const path = await save({
+        title: '保存成图',
+        defaultPath: `ziran-${stamp}.${ext}`,
+        filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+      })
+      if (!path) return // 用户取消了对话框
+      await invoke('save_result_image', { path, dataUrl })
+      setStatus({ text: `成图已保存：${path}`, tone: 'ok' })
+    } catch (e) {
+      try {
+        const res = await fetch(dataUrl)
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `ziran-${stamp}.${ext}`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 4000)
+        setStatus({ text: '已开始下载成图（浏览器下载）', tone: 'ok' })
+      } catch {
+        openExternal(result)
+        setStatus({ text: `没能保存（${String(e)}），已在系统浏览器打开图片，可右键另存`, tone: 'neutral' })
+      }
     }
   }
+
+  // ⌘S / Ctrl+S 保存成图
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        void saveResult()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result])
 
   useEffect(() => {
     if (!showGuide) return
@@ -1001,7 +1037,7 @@ function App() {
           <button className="icon-btn" title="使用说明" onClick={() => setShowGuide(true)}>
             <Icon name="help" size={17} />
           </button>
-          <button className="icon-btn" title="下载结果" onClick={saveResult} disabled={!result}>
+          <button className="icon-btn" title="保存成图（⌘S）" onClick={saveResult} disabled={!result}>
             <Icon name="download" size={17} />
           </button>
         </div>
