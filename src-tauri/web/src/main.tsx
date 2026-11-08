@@ -1079,6 +1079,15 @@ function App() {
   const step2Done = activeProvider.refs ? hasRef : prompt.trim().length > 0
   const ready = hasKey && step2Done
 
+  // 画板顶部「已选参考」缩略条：选了什么显示什么，全空时不渲染整条（不留
+  // 占位）。生成过渡幕在它下层，出图过程中也能看到这次用的是哪几张模板。
+  // 点卡片放大预览。
+  const stripRefs = (['photo', 'pose', 'costume', 'face'] as RefKey[]).filter((k) => refs[k])
+  const stripLabel = (k: RefKey) => {
+    const m = refMeta[k]
+    return m ? `${REF_META[k].name} · ${m.name} ${m.code}`.trim() : REF_META[k].name
+  }
+
   const dismissGuide = () => {
     setShowGuide(false)
     try {
@@ -1356,6 +1365,24 @@ function App() {
               )}
             </div>
           </div>
+
+          {stripRefs.length > 0 && (
+            <div className="ref-strip" aria-label="已选参考">
+              {stripRefs.map((k) => (
+                <button
+                  key={k}
+                  className="ref-strip-card"
+                  title={`点击放大 · ${stripLabel(k)}`}
+                  onClick={() => setPreview({ src: refs[k] as string, title: stripLabel(k) })}
+                >
+                  <span className="ref-strip-thumb">
+                    <RefThumb url={refs[k]} kind={k} />
+                  </span>
+                  <span className="ref-strip-label">{stripLabel(k)}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {busy && (
             <div className="gen-veil" role="status" aria-live="polite">
