@@ -92,7 +92,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          # macos-13 镜像已被 GitHub 退役，runner 队列长期积压（v0.0.6 起排队
+          # 数天不动，把整条发布卡成草稿）。Intel 包改在最新 macOS runner 上
+          # 交叉编译：同一台 arm 机器分别出 x86_64 / aarch64 两个 target 的 dmg。
+          - runner: macos-latest
             target: x86_64-apple-darwin
           - runner: macos-latest
             target: aarch64-apple-darwin
