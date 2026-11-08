@@ -18,9 +18,11 @@
 
 亮色 / 暗色两套主题，标题栏一键切换，随时切、随时记：
 
-| 亮色 | 暗色 |
-|---|---|
-| <img src="docs/screenshots/light.png" width="100%" alt="Ziran 亮色主题：照片已上参考条，成图铺满画板，右侧选模型、配参考、点生成"> | <img src="docs/screenshots/dark.png" width="100%" alt="Ziran 暗色主题：同一套布局，成图在深色画布上更聚焦"> |
+![Ziran 界面截图 1](./docs/screenshots/Screenshot%202026-11-08%20at%2018.21.06.png)
+
+![Ziran 界面截图 2](./docs/screenshots/Screenshot%202026-11-08%20at%2018.21.48.png)
+
+![Ziran 界面截图 3](./docs/screenshots/Screenshot%202026-11-08%20at%2018.23.06.png)
 
 画板周围的三件小事，都为「不挡图」设计：
 
