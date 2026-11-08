@@ -514,35 +514,58 @@ function App() {
     }
   }, [refMeta])
 
-  // 读 providers.json（没有就写入内置默认），失败时静默沿用内置默认
+  // 读 providers.json（没有就写入内置默认）。
+  // 错误分三类，不能混在一个 catch 里吞掉：
+  //   ① 后端不在（纯浏览器开发预览）→ 静默保持内置默认
+  //   ② 文件语法坏了（用户改错 JSON）→ 明确报错，沿用当前列表，绝不把坏数据放进界面
+  //   ③ 文件里没有有效条目 → 明确报错，沿用内置默认
   const applyProvidersFile = async (announce: boolean) => {
+    let raw: string | null
     try {
       const path = await invoke<string>('config_file_path', { name: 'providers.json' })
       setProvidersPath(path)
-      const raw = await invoke<string | null>('read_config_file', { name: 'providers.json' })
-      if (raw == null) {
+      raw = await invoke<string | null>('read_config_file', { name: 'providers.json' })
+    } catch {
+      return // ① 开发预览没有后端
+    }
+    if (raw == null) {
+      try {
         await invoke('write_config_file', {
           name: 'providers.json',
           contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2)
         })
         setProviders(DEFAULT_PROVIDERS)
         if (announce) setStatus({ text: '已把默认供应商写入 providers.json，可直接编辑', tone: 'ok' })
-        return
+      } catch (e) {
+        setStatus({ text: `providers.json 写入失败：${String(e)}`, tone: 'err' })
       }
-      const parsed = sanitizeProviders(JSON.parse(raw))
-      if (parsed.length) {
-        setProviders(parsed)
-        if (announce) setStatus({ text: `已从 providers.json 载入 ${parsed.length} 个供应商`, tone: 'ok' })
-        // 当前选中的供应商若已不存在，回落到列表第一个
-        if (!parsed.some((p) => p.value === settings.provider)) {
-          const first = parsed[0]
-          update({ provider: first.value, model: first.model, baseUrl: first.baseUrl })
-        }
-      } else if (announce) {
-        setStatus({ text: 'providers.json 里没有有效条目，已沿用内置默认', tone: 'err' })
-      }
-    } catch {
-      // 纯浏览器开发预览没有后端：保持内置默认
+      return
+    }
+    let parsed: ProviderDef[]
+    try {
+      parsed = sanitizeProviders(JSON.parse(raw))
+    } catch (e) {
+      setStatus({ text: `providers.json 解析失败，已沿用默认（${e instanceof Error ? e.message : String(e)}）`, tone: 'err' })
+      return
+    }
+    if (!parsed.length) {
+      setStatus({ text: 'providers.json 里没有有效条目，已沿用内置默认', tone: 'err' })
+      return
+    }
+    setProviders(parsed)
+    const noModel = parsed.filter((p) => !p.model.trim()).length
+    if (announce) {
+      setStatus({ text: `已从 providers.json 载入 ${parsed.length} 个供应商${noModel ? `，${noModel} 个缺 model 字段` : ''}`, tone: 'ok' })
+    } else if (noModel) {
+      setStatus({ text: `providers.json 里 ${noModel} 个供应商缺 model 字段，选中它生成会报错`, tone: 'err' })
+    }
+    // 当前选中的供应商若已不存在，回落到列表第一个（model/baseUrl 由 effModel/effBaseUrl 兜底）
+    if (!parsed.some((p) => p.value === settings.provider)) {
+      update({ provider: parsed[0].value })
+    }
+    // 配置面板里正被编辑的供应商同理，避免左侧列表失去高亮
+    if (!parsed.some((p) => p.value === panelProvider)) {
+      setPanelProvider(parsed[0].value)
     }
   }
   useEffect(() => {
@@ -656,6 +679,11 @@ function App() {
     }
 
     const model = effModel()
+    if (!model.trim()) {
+      openPanel()
+      setStatus({ text: `${meta.label} 还没有配置模型名，请在模型配置里填写`, tone: 'err' })
+      return
+    }
     const key = effKey().trim()
 
     setBusy(true)
