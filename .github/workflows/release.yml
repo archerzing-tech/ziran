@@ -265,7 +265,7 @@ jobs:
           dll="$tools/NSIS/Plugins/x86-unicode/additional/nsis_tauri_utils.dll"
           if [ ! -f "$dll" ]; then
             mkdir -p "$(dirname "$dll")"
-            fetch "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll" "$dll"
+            fetch "$dll" "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll"
           fi
           echo "75197FEE3C6A814FE035788D1C34EAD39349B860  $dll" | sha1sum -c -
           for f in candle.exe light.exe WixUIExtension.dll WixUtilExtension.dll; do
