@@ -214,12 +214,14 @@ jobs:
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle
 
       # WiX / NSIS / 插件 dll 都是 GitHub release 资产，CDN 抽风时 bundler
-      # 自带的单次下载连吃 504（v0.2.1 卡了四趟构建）。这里用长退避 curl
+      # 自带的单次下载连吃 504（v0.2.1 卡了五趟构建）。这里用长退避 curl
       # 把三个工件预下载进 bundler 的工具目录（%LOCALAPPDATA%\tauri）并
       # 校验哈希——目录齐了 bundler 就不再自己下载；目录整体进 actions/
       # cache，成功一次之后所有发布都不再碰这个 CDN。哈希取自
       # tauri-bundler 2.12.4 源码（WIX_SHA256 / NSIS_SHA1 /
       # NSIS_TAURI_UTILS_SHA1），装错文件会在这一步当场炸而不是进构建。
+      # NSIS 另备 SourceForge 官方源（实测与 tauri 转存字节一致，SHA1 同为
+      # DB14F8AF…），专治 GitHub CDN 对单个对象的持续性 504。
       - name: Cache vendored WiX/NSIS
         uses: actions/cache@v4
         with:
@@ -229,25 +231,30 @@ jobs:
       - name: Vendor WiX/NSIS for the bundler
         run: |
           tools="$LOCALAPPDATA/tauri"
-          fetch() {
-            for i in 1 2 3 4 5 6 7 8; do
-              curl -fL --connect-timeout 20 --max-time 600 -o "$2" "$1" && return 0
-              echo "download attempt $i failed ($1); waiting 60s" >&2
-              sleep 60
+          fetch() { # fetch <out> <url...>：逐源逐轮退避重试
+            local out="$1"; shift
+            for i in 1 2 3 4 5 6; do
+              for u in "$@"; do
+                curl -fL --connect-timeout 20 --max-time 600 -o "$out" "$u" && return 0
+                echo "attempt $i failed ($u); trying next source in 30s" >&2
+                sleep 30
+              done
             done
-            echo "gave up downloading $1" >&2
+            echo "gave up downloading: $*" >&2
             return 1
           }
           if [ ! -f "$tools/WixTools314/candle.exe" ]; then
             mkdir -p "$tools/WixTools314"
-            fetch "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" "$tools/wix.zip"
+            fetch "$tools/wix.zip" "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
             echo "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31  $tools/wix.zip" | sha256sum -c -
             ( command -v 7z >/dev/null 2>&1 && 7z x -y -o"$tools/WixTools314" "$tools/wix.zip" >/dev/null ) \
               || ( command -v unzip >/dev/null 2>&1 && unzip -q -o "$tools/wix.zip" -d "$tools/WixTools314" )
             rm -f "$tools/wix.zip"
           fi
           if [ ! -f "$tools/NSIS/makensis.exe" ]; then
-            fetch "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip" "$tools/nsis.zip"
+            fetch "$tools/nsis.zip" \
+              "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip" \
+              "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13.zip"
             echo "DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E  $tools/nsis.zip" | sha1sum -c -
             ( command -v 7z >/dev/null 2>&1 && 7z x -y -o"$tools" "$tools/nsis.zip" >/dev/null ) \
               || ( command -v unzip >/dev/null 2>&1 && unzip -q -o "$tools/nsis.zip" -d "$tools" )
