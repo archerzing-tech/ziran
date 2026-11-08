@@ -1831,7 +1831,7 @@ select.input {
   padding: 5px 7px 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(14, 15, 20, 0.86);
+  background: rgba(14, 15, 20, 0.8);
   cursor: zoom-in;
   transition: border-color 0.12s;
 }
@@ -1842,8 +1842,8 @@ select.input {
 
 .ref-strip-thumb {
   display: block;
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: 5px;
   overflow: hidden;
   background: #101015;
@@ -1857,13 +1857,98 @@ select.input {
 }
 
 .ref-strip-label {
-  max-width: 76px;
+  max-width: 68px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 9.5px;
   letter-spacing: 0.02em;
   color: var(--text-dim);
+}
+
+/* 生成历史切换条：贴画板底部一排 44px 缩略图，可横向滚动；
+   当前查看的描蓝边。父层 pointer-events:none 只给卡片放行，
+   避免整条横幅挡住画板的拖拽落图。 */
+.history-strip {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 3px;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.history-card {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(14, 15, 20, 0.8);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.12s;
+}
+
+.history-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.history-card:hover {
+  border-color: var(--line-2);
+  transform: translateY(-2px);
+}
+
+.history-card.is-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent-soft);
+}
+
+.history-thumb-wait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+
+/* 保存按钮浮在成图图层上：平时隐形，悬停画板 / 键盘聚焦才现身 */
+.artboard-download {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: rgba(12, 13, 18, 0.82);
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  z-index: 4;
+  transition: opacity 0.15s ease, color 0.12s, border-color 0.12s;
+}
+
+.artboard:hover .artboard-download,
+.artboard-download:focus-visible {
+  opacity: 1;
+}
+
+.artboard-download:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
 }
 
 @keyframes board-breathe {

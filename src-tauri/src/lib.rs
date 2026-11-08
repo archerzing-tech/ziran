@@ -88,6 +88,15 @@ fn db_open(app: &tauri::AppHandle) -> Result<Connection, String> {
          bytes   BLOB NOT NULL,
          size    INTEGER NOT NULL,
          created INTEGER NOT NULL
+       );
+       CREATE TABLE IF NOT EXISTS history (
+         id       INTEGER PRIMARY KEY AUTOINCREMENT,
+         created  INTEGER NOT NULL,
+         provider TEXT NOT NULL DEFAULT '',
+         model    TEXT NOT NULL DEFAULT '',
+         file     TEXT NOT NULL,
+         thumb    TEXT NOT NULL DEFAULT '',
+         size     INTEGER NOT NULL
        );",
     )
     .map_err(|e| e.to_string())?;
@@ -459,6 +468,228 @@ fn save_result_image(path: String, data_url: String) -> Result<String, String> {
   Ok(path)
 }
 
+/// 生成历史：每次成功的成图落一份到应用数据目录 history/，
+/// 元数据（provider/model/文件名/缩略图名）进 gallery.db 的 history 表，
+/// 上限 HISTORY_KEEP 张，超出时连行带文件一起裁掉最旧的。
+/// 前端用 history_list/history_thumb 画切换条，history_image 取原图查看。
+const HISTORY_KEEP: i64 = 50;
+
+#[derive(Serialize)]
+struct HistoryEntry {
+  id: i64,
+  created: i64,
+  provider: String,
+  model: String,
+  size: i64,
+}
+
+fn history_ext(mime: &str) -> Result<&'static str, String> {
+  match mime {
+    "png" => Ok("png"),
+    "jpeg" => Ok("jpg"),
+    "webp" => Ok("webp"),
+    "gif" => Ok("gif"),
+    other => Err(format!("unsupported image type: {other}")),
+  }
+}
+
+/// 96px JPEG 缩略图。个别格式解不开时返回 None（列表退化为直接用原图）。
+fn make_thumb(bytes: &[u8]) -> Option<Vec<u8>> {
+  let img = image::load_from_memory(bytes).ok()?;
+  let rgb = img.thumbnail(96, 96).to_rgb8();
+  let mut out = Vec::new();
+  image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80)
+    .encode_image(&rgb)
+    .ok()?;
+  Some(out)
+}
+
+fn clip_meta(s: &str) -> String {
+  s.trim().chars().take(120).collect()
+}
+
+/// id → 文件名。thumb_only=true 时先取缩略图列，缺了退回原图。
+fn history_file_of(app: &tauri::AppHandle, id: i64, thumb_only: bool) -> Result<String, String> {
+  let conn = db_open(app)?;
+  let sql = if thumb_only {
+    "SELECT CASE WHEN thumb = '' THEN file ELSE thumb END FROM history WHERE id = ?1"
+  } else {
+    "SELECT file FROM history WHERE id = ?1"
+  };
+  let name: String = conn
+    .query_row(sql, [id], |r| r.get(0))
+    .map_err(|e| format!("历史记录 #{id} 不存在：{e}"))?;
+  Ok(name)
+}
+
+fn read_history_file(app: &tauri::AppHandle, name: &str) -> Result<(Vec<u8>, &'static str), String> {
+  // 文件名由本程序生成（ziran-<secs>-<nanos>.<ext> / .thumb.jpg），
+  // 只接受纯文件名，防止 path traversal。
+  if name.contains('/') || name.contains('\\') || name.contains("..") {
+    return Err("bad history file name".into());
+  }
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  let bytes = fs::read(dir.join("history").join(name)).map_err(|e| format!("读取历史文件失败：{e}"))?;
+  let mime = match name.rsplit('.').next() {
+    Some("png") => "image/png",
+    Some("webp") => "image/webp",
+    Some("gif") => "image/gif",
+    _ => "image/jpeg",
+  };
+  Ok((bytes, mime))
+}
+
+fn prune_history(conn: &Connection, dir: &std::path::Path) {
+  // 找到第 HISTORY_KEEP 条之后的行，逐行删文件再删行。失败静默——
+  // 裁剪只是回收空间，不该打断保存。
+  let cutoff: Option<i64> = conn
+    .query_row(
+      "SELECT id FROM history ORDER BY id DESC LIMIT 1 OFFSET ?1",
+      [HISTORY_KEEP],
+      |r| r.get(0),
+    )
+    .ok();
+  let Some(cutoff) = cutoff else { return };
+  let stale: Vec<(i64, String, String)> = conn
+    .prepare("SELECT id, file, thumb FROM history WHERE id <= ?1")
+    .and_then(|mut s| {
+      s.query_map([cutoff], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+      })?
+      .collect()
+    })
+    .unwrap_or_default();
+  for (_, file, thumb) in stale {
+    for name in [file, thumb] {
+      if !name.is_empty() {
+        let _ = fs::remove_file(dir.join(&name));
+      }
+    }
+  }
+  let _ = conn.execute("DELETE FROM history WHERE id <= ?1", [cutoff]);
+}
+
+#[tauri::command]
+fn history_add(
+  app: tauri::AppHandle,
+  data_url: String,
+  provider: String,
+  model: String,
+) -> Result<HistoryEntry, String> {
+  let rest = data_url
+    .strip_prefix("data:image/")
+    .ok_or("not an image data url")?;
+  let (mime, b64) = rest
+    .split_once(";base64,")
+    .ok_or("data url has no base64 payload")?;
+  let ext = history_ext(mime)?;
+  let bytes = base64_decode(b64)?;
+  if bytes.is_empty() {
+    return Err("image payload is empty".into());
+  }
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  let hdir = dir.join("history");
+  fs::create_dir_all(&hdir).map_err(|e| e.to_string())?;
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default();
+  let name = format!("ziran-{}-{}.{ext}", now.as_secs(), now.subsec_nanos());
+  fs::write(hdir.join(&name), &bytes).map_err(|e| format!("写入历史失败：{e}"))?;
+  let thumb_name = make_thumb(&bytes)
+    .map(|t| {
+      let tname = format!("{name}.thumb.jpg");
+      match fs::write(hdir.join(&tname), &t) {
+        Ok(_) => tname,
+        Err(_) => String::new(),
+      }
+    })
+    .unwrap_or_default();
+  let conn = db_open(&app)?;
+  conn
+    .execute(
+      "INSERT INTO history (created, provider, model, file, thumb, size) VALUES (?1,?2,?3,?4,?5,?6)",
+      rusqlite::params![
+        now.as_secs() as i64,
+        clip_meta(&provider),
+        clip_meta(&model),
+        name,
+        thumb_name,
+        bytes.len() as i64
+      ],
+    )
+    .map_err(|e| e.to_string())?;
+  let id = conn.last_insert_rowid();
+  prune_history(&conn, &hdir);
+  Ok(HistoryEntry {
+    id,
+    created: now.as_secs() as i64,
+    provider: clip_meta(&provider),
+    model: clip_meta(&model),
+    size: bytes.len() as i64,
+  })
+}
+
+#[tauri::command]
+fn history_list(app: tauri::AppHandle) -> Result<Vec<HistoryEntry>, String> {
+  let conn = db_open(&app)?;
+  let mut stmt = conn
+    .prepare("SELECT id, created, provider, model, size FROM history ORDER BY id DESC LIMIT ?1")
+    .map_err(|e| e.to_string())?;
+  let rows = stmt
+    .query_map([HISTORY_KEEP], |r| {
+      Ok(HistoryEntry {
+        id: r.get(0)?,
+        created: r.get(1)?,
+        provider: r.get(2)?,
+        model: r.get(3)?,
+        size: r.get(4)?,
+      })
+    })
+    .map_err(|e| e.to_string())?;
+  let entries = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+  Ok(entries)
+}
+
+#[tauri::command]
+fn history_image(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+  let name = history_file_of(&app, id, false)?;
+  let (bytes, mime) = read_history_file(&app, &name)?;
+  Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
+}
+
+#[tauri::command]
+fn history_thumb(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+  let name = history_file_of(&app, id, true)?;
+  let (bytes, mime) = read_history_file(&app, &name)?;
+  Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
+}
+
+#[tauri::command]
+fn history_delete(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+  let conn = db_open(&app)?;
+  let rows: Vec<(String, String)> = conn
+    .prepare("SELECT file, thumb FROM history WHERE id = ?1")
+    .and_then(|mut s| {
+      s.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    })
+    .map_err(|e| e.to_string())?;
+  if rows.is_empty() {
+    return Err(format!("历史记录 #{id} 不存在"));
+  }
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  for (file, thumb) in rows {
+    for name in [file, thumb] {
+      if !name.is_empty() {
+        let _ = fs::remove_file(dir.join("history").join(&name));
+      }
+    }
+  }
+  conn
+    .execute("DELETE FROM history WHERE id = ?1", [id])
+    .map_err(|e| e.to_string())?;
+  Ok(())
+}
+
 /// 供应商 API 请求代理。webview 里的 fetch 过不了 CORS：有的服务
 /// （如火山方舟）只在 OPTIONS 预检里回 access-control-allow-origin，
 /// 实际响应不带，浏览器按规范把整个响应扔掉——表面就是一句
@@ -662,6 +893,11 @@ pub fn run() {
       append_log,
       open_log_file,
       open_config_dir,
+      history_add,
+      history_list,
+      history_image,
+      history_thumb,
+      history_delete,
       save_result_image,
       provider_fetch
     ])
@@ -797,6 +1033,67 @@ mod tests {
       .unwrap();
     assert_eq!(mime, "image/webp");
     assert_eq!(bytes, vec![1, 2, 3]);
+  }
+
+  /// 历史裁剪：只留最近 HISTORY_KEEP 条，最旧的行和文件一起删。
+  #[test]
+  fn history_prune_keeps_recent_and_deletes_files() {
+    let tmp = std::env::temp_dir().join(format!("ziran-hist-test-{}", std::process::id()));
+    fs::create_dir_all(&tmp).unwrap();
+    let conn = Connection::open(tmp.join("gallery.db")).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+    conn
+      .execute_batch(
+        "CREATE TABLE history (
+           id       INTEGER PRIMARY KEY AUTOINCREMENT,
+           created  INTEGER NOT NULL,
+           provider TEXT NOT NULL DEFAULT '',
+           model    TEXT NOT NULL DEFAULT '',
+           file     TEXT NOT NULL,
+           thumb    TEXT NOT NULL DEFAULT '',
+           size     INTEGER NOT NULL);",
+      )
+      .unwrap();
+    for i in 0..55 {
+      let file = format!("ziran-{i}.png");
+      fs::write(tmp.join(&file), b"x").unwrap();
+      conn
+        .execute(
+          "INSERT INTO history (created, file, thumb, size) VALUES (?1,?2,'',1)",
+          rusqlite::params![i, file],
+        )
+        .unwrap();
+    }
+    prune_history(&conn, &tmp);
+    let (count, oldest, newest): (i64, i64, i64) = conn
+      .query_row(
+        "SELECT COUNT(*), MIN(id), MAX(id) FROM history",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+      )
+      .unwrap();
+    assert_eq!(count, HISTORY_KEEP);
+    assert_eq!(oldest, 6); // id 从 1 起，id<=5（created 0..=4）被裁掉
+    assert_eq!(newest, 55);
+    for i in 0..5 {
+      assert!(!tmp.join(format!("ziran-{i}.png")).exists(), "file {i} should be gone");
+    }
+    for i in 5..55 {
+      assert!(tmp.join(format!("ziran-{i}.png")).exists(), "file {i} should survive");
+    }
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  /// 缩略图：真 PNG 缩得出，垃圾字节返回 None（不炸）。
+  #[test]
+  fn make_thumb_handles_real_and_garbage() {
+    let img = image::DynamicImage::new_rgb8(320, 200);
+    let mut png = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+      .unwrap();
+    let thumb = make_thumb(&png).expect("real png should thumb");
+    assert!(thumb.len() > 0 && thumb.len() < png.len());
+    assert!(make_thumb(b"not-an-image").is_none());
   }
 
   /// 真实网络对比：一次性连接 vs 连接池 + 闸门并发。

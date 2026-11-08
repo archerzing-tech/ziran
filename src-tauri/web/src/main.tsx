@@ -16,6 +16,9 @@ type Settings = {
 }
 const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '', soft: false, adult: false }
 
+// 本地生成历史的一条元数据（图片本体在应用数据目录 history/ 下）
+type HistoryItem = { id: number; created: number; provider: string; model: string; size: number }
+
 type RefKey = 'photo' | 'pose' | 'costume' | 'face'
 type Refs = Record<RefKey, string | null>
 type Tone = 'neutral' | 'busy' | 'ok' | 'err'
@@ -578,6 +581,10 @@ function App() {
   const [active, setActive] = useState<RefKey>('pose')
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState('')
+  // 生成历史：新出图自动归档，点缩略条切换回看。viewingHistory 是当前
+  // 正在看的条目 id；null 表示看的是最新出图（新生成时重置）。
+  const [history, setHistory] = useState<HistoryItem[]>([])
+  const [viewingHistory, setViewingHistory] = useState<number | null>(null)
   const [status, setStatus] = useState<{ text: string; tone: Tone }>({ text: '就绪', tone: 'neutral' })
   const [busy, setBusy] = useState(false)
   const [refMeta, setRefMeta] = useState<Record<RefKey, RefMeta | null>>(loadRefMeta)
@@ -607,6 +614,14 @@ function App() {
       // storage can be unavailable (private mode); settings still live in memory
     }
   }, [settings])
+
+  // 启动时把本地生成历史拉进来自动填充切换条（后端不在则静默跳过；
+  // 兜底 Array.isArray：桩/异常路径返回 null 时不能把列表打成 null）
+  useEffect(() => {
+    invoke<HistoryItem[]>('history_list')
+      .then((rows) => setHistory(Array.isArray(rows) ? rows : []))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     try {
@@ -907,6 +922,8 @@ function App() {
 
     setBusy(true)
     setCensor(false)
+    // 新一轮生成开始：切条高亮回到「最新」，出图完成即归档为新历史
+    setViewingHistory(null)
     setStatus({ text: `正在生成图像 · ${meta.label}`, tone: 'busy' })
     const startedAt = Date.now()
     const genLog = (level: 'info' | 'error', rest: string) =>
@@ -1029,6 +1046,8 @@ function App() {
         setCensor(false)
         setStatus({ text: '生成完成', tone: 'ok' })
         genLog('info', `status=ok durMs=${Date.now() - startedAt}`)
+        // 归档进本地历史（fire-and-forget：归档失败不影响出图本身）
+        void archiveHistory(output)
       } else {
         setStatus({ text: '响应里没有图像数据', tone: 'err' })
         genLog('error', `status=no-image durMs=${Date.now() - startedAt}`)
@@ -1094,6 +1113,48 @@ function App() {
       localStorage.setItem(`${STORAGE_KEY}.guide`, '1')
     } catch {
       // ignore storage failures
+    }
+  }
+
+  // —— 生成历史 ——
+  // 出图成功后归档（远端 URL 先转本地 data URI），失败静默：
+  // 出图已经成功，历史只是锦上添花，不该反过来打扰用户。
+  const archiveHistory = async (output: string) => {
+    try {
+      let dataUrl = output
+      if (!dataUrl.startsWith('data:image/')) {
+        dataUrl = await invoke<string>('image_data_uri', { url: output, kind: 'result' })
+      }
+      const entry = await invoke<HistoryItem>('history_add', {
+        dataUrl,
+        provider: settings.provider,
+        model: effModel()
+      })
+      // 桩/异常路径可能返回 null：没有合法 id 就不进列表
+      if (entry && typeof entry.id === 'number') {
+        setHistory((prev) => [entry, ...prev].slice(0, 50))
+      }
+    } catch {
+      // ignore — 归档失败不打扰出图流程
+    }
+  }
+
+  const historyTime = (created: number) => {
+    const t = new Date(created * 1000)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${t.getMonth() + 1}/${t.getDate()} ${pad(t.getHours())}:${pad(t.getMinutes())}`
+  }
+
+  // 点历史缩略图 → 取原图上画板。此后 ⌘S 保存/预览作用的都是这张历史图；
+  // 最新一张仍在历史里，不会丢。再次生成会自动回到「最新」视角。
+  const viewHistory = async (item: HistoryItem) => {
+    try {
+      const uri = await invoke<string>('history_image', { id: item.id })
+      setResult(uri)
+      setViewingHistory(item.id)
+      setStatus({ text: `历史成图 · ${historyTime(item.created)} · ${item.provider} ${item.model}`, tone: 'neutral' })
+    } catch {
+      setStatus({ text: '读取历史成图失败', tone: 'err' })
     }
   }
 
@@ -1283,9 +1344,6 @@ function App() {
           <button className="icon-btn" title="使用说明" onClick={() => setShowGuide(true)}>
             <Icon name="help" size={17} />
           </button>
-          <button className="icon-btn" title="保存成图（⌘S）" onClick={saveResult} disabled={!result}>
-            <Icon name="download" size={17} />
-          </button>
         </div>
       </header>
 
@@ -1363,6 +1421,18 @@ function App() {
               {!result && boardBusy && canvasSource && (
                 <span className="board-upgrading">高清原图加载中…</span>
               )}
+              {/* 保存按钮直接浮在成图图层上：平时隐形，悬停画板才现身；
+                  反向缩放抵消画板的 transform，按钮大小不随 zoom 变 */}
+              {result && (
+                <button
+                  className="artboard-download"
+                  title="保存成图（⌘S）"
+                  onClick={saveResult}
+                  style={{ transform: `scale(${Number((1 / zoom).toFixed(3))})` }}
+                >
+                  <Icon name="download" size={15} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1381,6 +1451,26 @@ function App() {
                   <span className="ref-strip-label">{stripLabel(k)}</span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* 生成历史切换条：多于一张才显示（一张没有切换的意义）。
+              viewingHistory 为 null（刚生成完）时高亮最新一张。 */}
+          {history.length > 1 && (
+            <div className="history-strip" aria-label="生成历史">
+              {history.map((h) => {
+                const isCurrent = viewingHistory === h.id || (viewingHistory === null && h.id === history[0].id)
+                return (
+                  <button
+                    key={h.id}
+                    className={`history-card${isCurrent ? ' is-current' : ''}`}
+                    title={`${historyTime(h.created)} · ${h.provider} ${h.model}${isCurrent ? ' · 当前' : ''}`}
+                    onClick={() => void viewHistory(h)}
+                  >
+                    <HistoryThumb id={h.id} />
+                  </button>
+                )
+              })}
             </div>
           )}
 
@@ -2272,6 +2362,24 @@ function RefThumb({ url, kind }: { url: string | null; kind: RefKey }) {
     }
   }, [url, kind])
   return src ? <img src={src} alt={REF_META[kind].name} /> : null
+}
+
+// 历史条缩略图：按条目 id 取 96px 小图（服务端已生成好，几 KB 一张），
+// 读取失败就留空底色，不阻塞整条。
+function HistoryThumb({ id }: { id: number }) {
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    invoke<string>('history_thumb', { id })
+      .then((s) => {
+        if (!cancelled) setSrc(s)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+  return src ? <img src={src} alt="" draggable={false} /> : <span className="history-thumb-wait" />
 }
 
 // 大图预览走本地库：全图多半已被画板/点选预热，直接命中缓存
