@@ -1451,11 +1451,17 @@ function App() {
                 <span className="provider-config-label">providers.json</span>
                 <button
                   className="key-jump"
-                  title={providersPath || '打开配置文件夹'}
+                  title={providersPath || '用系统文本编辑器打开 providers.json'}
                   onClick={() =>
-                    invoke('open_config_dir')
-                      .then(() => setStatus({ text: '配置文件夹已在系统文件管理器打开，编辑 providers.json 保存即可', tone: 'ok' }))
-                      .catch(() => setStatus({ text: '当前是开发预览，没有本地配置目录', tone: 'err' }))
+                    invoke<string | null>('read_config_file', { name: 'providers.json' })
+                      .then((cur) =>
+                        cur === null
+                          ? invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2) })
+                          : undefined,
+                      )
+                      .then(() => invoke('edit_config_file', { name: 'providers.json' }))
+                      .then(() => setStatus({ text: 'providers.json 已在系统文本编辑器打开，改完保存，回来点「重新加载」生效', tone: 'ok' }))
+                      .catch(() => setStatus({ text: '没能打开编辑器，可手动编辑配置文件夹里的 providers.json', tone: 'err' }))
                   }
                 >
                   编辑配置文件 ↗

@@ -320,6 +320,32 @@ fn write_config_file(app: tauri::AppHandle, name: String, contents: String) -> R
   fs::write(dir.join(&name), contents).map_err(|e| e.to_string())
 }
 
+/// 用系统默认的纯文本编辑器打开配置文件。
+/// 「在 Finder 里打开文件夹」的两个问题：窗口藏在应用后面（用户以为
+/// 点了没反应），文件夹里未必有要编辑的文件；直接打开文件本身两个都解决。
+#[tauri::command]
+fn edit_config_file(app: tauri::AppHandle, name: String) -> Result<(), String> {
+  config_file_guard(&name)?;
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  let path = dir.join(&name);
+  if !path.exists() {
+    return Err("config file does not exist".into());
+  }
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open").arg("-t").arg(&path).spawn().map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "windows")]
+  {
+    std::process::Command::new("notepad").arg(&path).spawn().map_err(|e| e.to_string())?;
+  }
+  #[cfg(target_os = "linux")]
+  {
+    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+  }
+  Ok(())
+}
+
 /// 在系统文件管理器里打开配置目录
 #[tauri::command]
 fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
@@ -403,6 +429,7 @@ pub fn run() {
       config_file_path,
       read_config_file,
       write_config_file,
+      edit_config_file,
       open_config_dir
     ])
     .run(tauri::generate_context!())
