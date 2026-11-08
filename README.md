@@ -71,8 +71,7 @@
 - 首次打开若被 Gatekeeper 拦截：右键 App → 打开；或执行 `xattr -dr com.apple.quarantine /Applications/Ziran.app`
 
 **Windows（10 及以上）**
-- `x64-setup.exe` → 64 位安装包（推荐）
-- `x64_en-US.msi` → MSI 备用
+- `x64-setup.exe` → 64 位安装包
 - 系统缺 WebView2 运行时时，安装器会自动下载安装（需联网）
 
 ## 开发
@@ -84,7 +83,7 @@ cd src-tauri && npm ci    # 应用目录：vite / @tauri-apps/cli
 
 npm run dev               # 仅前端（http://localhost:43123）
 npx tauri dev             # 桌面应用开发模式
-npx tauri build           # 打包（macOS 出 .app/.dmg，Windows 出 NSIS/MSI）
+npx tauri build           # 打包（macOS 出 .app/.dmg，Windows 出 NSIS 安装包，CI 加 --bundles nsis）
 ```
 
 目录速览：
