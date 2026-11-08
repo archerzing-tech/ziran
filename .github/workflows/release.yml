@@ -213,8 +213,19 @@ jobs:
       - name: Remove stale bundles from restored cache
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle
 
+      # WiX / NSIS 从 GitHub releases 下载，偶尔连续 504（v0.2.1 卡过三次）。
+      # cargo 树已在缓存里，重试只花打包几分钟，不重编依赖。
       - name: Build app
-        run: npx tauri build --target x86_64-pc-windows-msvc
+        run: |
+          for i in 1 2 3; do
+            if npx tauri build --target x86_64-pc-windows-msvc; then
+              exit 0
+            fi
+            echo "build attempt $i failed; retrying in 30s (bundler downloads hit transient 5xx)" >&2
+            sleep 30
+          done
+          echo "all 3 build attempts failed" >&2
+          exit 1
         working-directory: src-tauri
 
       # 同 macOS：零个安装包在这里判失败。NSIS（x64-setup.exe）与
