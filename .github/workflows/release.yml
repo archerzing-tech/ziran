@@ -229,6 +229,8 @@ jobs:
           key: tauri-bundler-tools-wix314-nsis313
 
       - name: Vendor WiX/NSIS for the bundler
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           tools="$LOCALAPPDATA/tauri"
           fetch() { # fetch <out> <url...>：逐源逐轮退避重试
@@ -265,7 +267,24 @@ jobs:
           dll="$tools/NSIS/Plugins/x86-unicode/additional/nsis_tauri_utils.dll"
           if [ ! -f "$dll" ]; then
             mkdir -p "$(dirname "$dll")"
-            fetch "$dll" "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll"
+            # 这个 dll 的 release 资产对象在 objects CDN 上持续 504（本机同样
+            # 复现，且无任何第三方镜像）。api.github.com 的 asset 端点
+            # （Accept: octet-stream）直接吐二进制，完全绕开那个域——实测字
+            # 节 SHA1 与 bundler 期望一致。asset id 345882097 取自该 release
+            # 的 assets 列表；tauri 重发版会让它失效，届时哈希校验会当场喊。
+            for i in 1 2 3 4 5 6; do
+              curl -fsSL --connect-timeout 20 --max-time 120 \
+                -H "Accept: application/octet-stream" \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -o "$dll" \
+                "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/345882097" \
+                && break
+              echo "dll via api attempt $i failed; retrying in 30s" >&2
+              sleep 30
+              curl -fsL --connect-timeout 15 --max-time 120 -o "$dll" \
+                "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll" \
+                && break
+            done
           fi
           echo "75197FEE3C6A814FE035788D1C34EAD39349B860  $dll" | sha1sum -c -
           for f in candle.exe light.exe WixUIExtension.dll WixUtilExtension.dll; do
