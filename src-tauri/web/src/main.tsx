@@ -180,6 +180,47 @@ async function refDataUri(url: string): Promise<{ mime: string; data: string }> 
   return { mime: m[1], data: m[2] }
 }
 
+type HttpResult = { status: number; text: string }
+// 供应商 API 请求统一走这里。打包应用里 webview 的 fetch 过不了 CORS：
+// 有的服务（火山方舟等）只在 OPTIONS 预检里回 access-control-allow-origin，
+// 实际响应不带，浏览器按规范把整个响应扔掉——表面只剩一句 "Load failed"，
+// 连 API 的报错原文都看不到。所以真实环境下走 Rust 代理（原生无 CORS，
+// 4xx/5xx 的报错原文也能带回来）；纯浏览器开发预览没有后端，退回 fetch。
+const IN_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+const providerPost = async (
+  url: string,
+  headers: Record<string, string>,
+  init: {
+    json?: string
+    fields?: [string, string][]
+    files?: { name: string; filename: string; mime: string; data: string }[]
+  }
+): Promise<HttpResult> => {
+  if (IN_TAURI) {
+    return invoke<HttpResult>('provider_fetch', {
+      request: {
+        url,
+        headers,
+        json_body: init.json ?? null,
+        form_fields: init.fields ?? [],
+        form_files: init.files ?? []
+      }
+    })
+  }
+  if (init.files?.length) {
+    const form = new FormData()
+    for (const [k, v] of init.fields ?? []) form.append(k, v)
+    for (const f of init.files) {
+      const bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0))
+      form.append(f.name, new Blob([bytes], { type: f.mime }), f.filename)
+    }
+    const res = await fetch(url, { method: 'POST', headers, body: form })
+    return { status: res.status, text: await res.text() }
+  }
+  const res = await fetch(url, { method: 'POST', headers, body: init.json ?? '' })
+  return { status: res.status, text: await res.text() }
+}
+
 // 按已载入的参考图自动拼提示词：一张人物照片 + 一个姿势即可出图，服装/人脸是增强项
 function autoPrompt(refs: Refs): string {
   const seg: string[] = []
@@ -698,16 +739,17 @@ function App() {
           const { mime, data } = await refDataUri(url)
           parts.push({ inline_data: { mime_type: mime, data } })
         }
-        const res = await fetch(`${base}/models/${model}:generateContent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: ratio.id } }
-          })
-        })
-        const text = await res.text()
-        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
+        const { status, text } = await providerPost(
+          `${base}/models/${model}:generateContent`,
+          { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          {
+            json: JSON.stringify({
+              contents: [{ parts }],
+              generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: ratio.id } }
+            })
+          }
+        )
+        if (status >= 400) throw new Error(`生成失败 ${status} · ${text.slice(0, 180)}`)
         const seg = (JSON.parse(text)?.candidates?.[0]?.content?.parts ?? []).find(
           (p: { inlineData?: { data?: string } }) => p?.inlineData?.data
         )
@@ -716,18 +758,19 @@ function App() {
         }
       } else if (meta.shape === 'minimax') {
         const subject = refs.photo || refs.face || refs.pose || refs.costume
-        const res = await fetch(`${base}/image_generation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-          body: JSON.stringify({
-            model,
-            prompt: promptText,
-            aspect_ratio: ratio.id,
-            ...(subject ? { subject_reference: [{ type: 'character', image_file: subject }] } : {})
-          })
-        })
-        const text = await res.text()
-        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
+        const { status, text } = await providerPost(
+          `${base}/image_generation`,
+          { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          {
+            json: JSON.stringify({
+              model,
+              prompt: promptText,
+              aspect_ratio: ratio.id,
+              ...(subject ? { subject_reference: [{ type: 'character', image_file: subject }] } : {})
+            })
+          }
+        )
+        if (status >= 400) throw new Error(`生成失败 ${status} · ${text.slice(0, 180)}`)
         const data = JSON.parse(text)
         if (data?.base_resp?.status_code) {
           throw new Error(`生成失败 · ${data.base_resp.status_msg || 'MiniMax 返回错误'}`)
@@ -736,32 +779,28 @@ function App() {
       } else if (meta.shape === 'gptimage') {
         // gpt-image-1 只接受 1024 方/竖/横三档尺寸
         const gptSize = ratio.w === ratio.h ? '1024x1024' : ratio.w > ratio.h ? '1536x1024' : '1024x1536'
-        let res: Response
+        let out: HttpResult
         if (refList.length) {
-          const form = new FormData()
-          form.append('model', model)
-          form.append('prompt', promptText)
-          form.append('size', gptSize)
+          const files = []
           for (const url of refList.slice(0, 4)) {
             const { mime, data } = await refDataUri(url)
-            const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
-            form.append('image[]', new Blob([bytes], { type: mime }), 'ref.png')
+            const ext = (mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
+            files.push({ name: 'image[]', filename: `ref.${ext}`, mime, data })
           }
-          res = await fetch(`${base}/images/edits`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${key}` },
-            body: form
-          })
+          out = await providerPost(
+            `${base}/images/edits`,
+            { Authorization: `Bearer ${key}` },
+            { fields: [['model', model], ['prompt', promptText], ['size', gptSize]], files }
+          )
         } else {
-          res = await fetch(`${base}/images/generations`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-            body: JSON.stringify({ model, prompt: promptText, size: gptSize })
-          })
+          out = await providerPost(
+            `${base}/images/generations`,
+            { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+            { json: JSON.stringify({ model, prompt: promptText, size: gptSize }) }
+          )
         }
-        const text = await res.text()
-        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
-        const b64 = JSON.parse(text)?.data?.[0]?.b64_json || ''
+        if (out.status >= 400) throw new Error(`生成失败 ${out.status} · ${out.text.slice(0, 180)}`)
+        const b64 = JSON.parse(out.text)?.data?.[0]?.b64_json || ''
         if (b64) output = `data:image/png;base64,${b64}`
       } else {
         const body: Record<string, unknown> =
@@ -787,13 +826,12 @@ function App() {
                   ...(refList.length ? { image: refList } : {}),
                   size: ratio.size
                 }
-        const res = await fetch(`${base}/images/generations`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-          body: JSON.stringify(body)
-        })
-        const text = await res.text()
-        if (!res.ok) throw new Error(`生成失败 ${res.status} · ${text.slice(0, 180)}`)
+        const { status, text } = await providerPost(
+          `${base}/images/generations`,
+          { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          { json: JSON.stringify(body) }
+        )
+        if (status >= 400) throw new Error(`生成失败 ${status} · ${text.slice(0, 180)}`)
         const data = JSON.parse(text)
         output = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || ''
         if (output && !output.startsWith('http') && !output.startsWith('data:')) {

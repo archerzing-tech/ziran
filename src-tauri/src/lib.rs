@@ -5,7 +5,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -401,6 +401,121 @@ fn save_result_image(path: String, data_url: String) -> Result<String, String> {
   Ok(path)
 }
 
+/// 供应商 API 请求代理。webview 里的 fetch 过不了 CORS：有的服务
+/// （如火山方舟）只在 OPTIONS 预检里回 access-control-allow-origin，
+/// 实际响应不带，浏览器按规范把整个响应扔掉——表面就是一句
+/// "Load failed"，连 API 的报错原文都看不到。原生侧没有 CORS，
+/// 错误响应也能原样带回（status + body text）。
+#[derive(Deserialize)]
+struct ProviderFilePart {
+  name: String,
+  filename: String,
+  mime: String,
+  /// base64（不带 data: 前缀）
+  data: String,
+}
+
+#[derive(Deserialize)]
+struct ProviderRequest {
+  url: String,
+  #[serde(default)]
+  headers: std::collections::HashMap<String, String>,
+  /// JSON 字符串体（与 multipart 二选一）
+  #[serde(default)]
+  json_body: Option<String>,
+  #[serde(default)]
+  form_fields: Vec<(String, String)>,
+  #[serde(default)]
+  form_files: Vec<ProviderFilePart>,
+}
+
+#[derive(Serialize)]
+struct ProviderResponse {
+  status: u16,
+  text: String,
+}
+
+fn build_multipart(
+  fields: &[(String, String)],
+  files: &[ProviderFilePart],
+) -> Result<(String, Vec<u8>), String> {
+  let boundary = format!(
+    "ziranboundary{}",
+    SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_nanos()
+  );
+  let mut body: Vec<u8> = Vec::new();
+  for (k, v) in fields {
+    body.extend_from_slice(
+      format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n")
+        .as_bytes(),
+    );
+  }
+  for f in files {
+    let bytes = base64_decode(&f.data)?;
+    body.extend_from_slice(
+      format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\nContent-Type: {}\r\n\r\n",
+        f.name, f.filename, f.mime
+      )
+      .as_bytes(),
+    );
+    body.extend_from_slice(&bytes);
+    body.extend_from_slice(b"\r\n");
+  }
+  body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+  Ok((format!("multipart/form-data; boundary={boundary}"), body))
+}
+
+/// 发请求并读回响应体。非 2xx 不当作错误：把 status + body 原样带回，
+/// API 的报错原文（"invalid api key" 之类）不能被吞成一句状态码。
+fn send_and_read(req: ureq::Request, body: Vec<u8>) -> Result<ProviderResponse, String> {
+  let res = match req.send_bytes(&body) {
+    Ok(r) => r,
+    Err(ureq::Error::Status(_, r)) => r,
+    Err(e) => return Err(e.to_string()),
+  };
+  let status = res.status();
+  let mut bytes = Vec::new();
+  res
+    .into_reader()
+    .take(MAX_DOWNLOAD_BYTES)
+    .read_to_end(&mut bytes)
+    .map_err(|e| e.to_string())?;
+  Ok(ProviderResponse {
+    status,
+    text: String::from_utf8_lossy(&bytes).into_owned(),
+  })
+}
+
+#[tauri::command]
+async fn provider_fetch(request: ProviderRequest) -> Result<ProviderResponse, String> {
+  if !request.url.starts_with("https://") {
+    return Err("only https urls are allowed".into());
+  }
+  tauri::async_runtime::spawn_blocking(move || {
+    let has_multipart = !request.form_fields.is_empty() || !request.form_files.is_empty();
+    let mut req = agent().post(&request.url);
+    if has_multipart {
+      let (content_type, body) = build_multipart(&request.form_fields, &request.form_files)?;
+      req = req.set("Content-Type", &content_type);
+      for (k, v) in &request.headers {
+        req = req.set(k, v);
+      }
+      send_and_read(req, body)
+    } else {
+      for (k, v) in &request.headers {
+        req = req.set(k, v);
+      }
+      send_and_read(req, request.json_body.unwrap_or_default().into_bytes())
+    }
+  })
+  .await
+  .map_err(|e| e.to_string())?
+}
+
 /// 在系统文件管理器里打开配置目录
 #[tauri::command]
 fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
@@ -487,7 +602,8 @@ pub fn run() {
       write_config_file,
       edit_config_file,
       open_config_dir,
-      save_result_image
+      save_result_image,
+      provider_fetch
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -517,6 +633,33 @@ mod tests {
     assert_eq!(base64_decode("Zm9vYmFy").unwrap(), b"foobar");
     assert_eq!(base64_decode("Zg==").unwrap(), b"f");
     assert!(base64_decode("a!c=").is_err());
+  }
+
+  #[test]
+  fn build_multipart_fields_and_files() {
+    let fields = vec![("model".to_string(), "gpt-image-1".to_string())];
+    let files = vec![ProviderFilePart {
+      name: "image[]".into(),
+      filename: "ref.png".into(),
+      mime: "image/png".into(),
+      // "hi" 的 base64
+      data: "aGk=".into(),
+    }];
+    let (content_type, body) = build_multipart(&fields, &files).unwrap();
+    assert!(content_type.starts_with("multipart/form-data; boundary=ziranboundary"));
+    let boundary = content_type.rsplit('=').next().unwrap();
+    let text = String::from_utf8(body).unwrap();
+    assert!(text.contains(&format!("--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-1\r\n")));
+    assert!(text.contains("name=\"image[]\"; filename=\"ref.png\"\r\nContent-Type: image/png\r\n\r\nhi\r\n"));
+    assert!(text.ends_with(&format!("--{boundary}--\r\n")));
+    // 坏 base64 要报错而不是 panic
+    assert!(build_multipart(&fields, &[ProviderFilePart {
+      name: "image[]".into(),
+      filename: "ref.png".into(),
+      mime: "image/png".into(),
+      data: "!!".into(),
+    }])
+    .is_err());
   }
 
   #[test]
