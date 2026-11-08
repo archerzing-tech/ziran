@@ -44,12 +44,12 @@ const DEFAULT_PROVIDERS: ProviderDef[] = [
   {
     value: 'ark',
     label: 'Seedream',
-    sub: '火山方舟',
+    sub: '火山引擎 · 方舟',
     model: 'doubao-seedream-5-0-flash-260915',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    desc: '国内直连最快，姿势/服装/人脸三张参考图都吃。',
+    desc: '国内直连最快，姿势/服装/人脸三张参考图都吃。Key 必须是「火山方舟」控制台签发的 API Key；IAM 子账号的访问密钥（AKLT 开头）是另一套体系，填进来会报 Key 格式错误。',
     keyUrl: 'https://console.volcengine.com/ark',
-    keyHint: '火山方舟控制台 → API Key 管理',
+    keyHint: '火山引擎控制台 → 火山方舟 → 左侧「API Key 管理」→ 新建 API Key',
     refs: true,
     shape: 'ark'
   },
@@ -67,13 +67,13 @@ const DEFAULT_PROVIDERS: ProviderDef[] = [
   },
   {
     value: 'zhipu',
-    label: '智谱 CogView',
-    sub: 'bigmodel',
+    label: '智谱 GLM-Image',
+    sub: 'bigmodel 国内站',
     model: 'glm-image',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    desc: '国产文生图，中文提示词理解好；不支持参考图，只会按描述画。',
+    desc: '国内直连 bigmodel.cn（无需代理），中文提示词理解好；只按文字画图，不支持参考图。',
     keyUrl: 'https://bigmodel.cn/usercenter/apikeys',
-    keyHint: '智谱开放平台 → API Keys',
+    keyHint: '智谱开放平台 bigmodel.cn → API Keys',
     refs: false,
     shape: 'openai'
   },
@@ -655,6 +655,9 @@ function App() {
     setPanelProvider(value)
     setPanelOpen(true)
   }
+  // 连通性测试：testing = 正在测的供应商，testOut = 各供应商最近一次结果（就地显示）
+  const [testing, setTesting] = useState<string | null>(null)
+  const [testOut, setTestOut] = useState<Record<string, { ok: boolean; ms: number; text: string }>>({})
   useEffect(() => {
     if (!panelOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -690,6 +693,94 @@ function App() {
     }
     setRef(key, await readAsDataUrl(file))
     setStatus({ text: `已载入${REF_META[key].name}参考 · ${file.name}`, tone: 'ok' })
+  }
+
+  // 连通性测试：对某个供应商发一次最小真实生成请求。
+  // 与正式生成完全同一条 providerPost → Rust 代理链路、同一套请求形态，
+  // 这里报「通」就等于 Key、模型名、接口地址、网络全部就绪。
+  const runTest = async (value: string) => {
+    if (testing) return
+    const meta = providerMeta(value)
+    if (!effKey(value).trim()) {
+      setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: 0, text: '还没填 API Key' } }))
+      return
+    }
+    const base = effBaseUrl(value).replace(/\/$/, '')
+    if (!base) {
+      setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: 0, text: '还没填接口地址' } }))
+      return
+    }
+    const model = effModel(value).trim()
+    if (!model) {
+      setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: 0, text: '还没填模型名' } }))
+      return
+    }
+    const key = effKey(value).trim()
+    const TEST_PROMPT = '纯色背景，极简连通性测试'
+    // 1×1 PNG：给编辑类模型（硅基流动 Qwen-Edit 必须带图）凑一个合法参考图入参
+    const TEST_IMG =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    setTesting(value)
+    const t0 = Date.now()
+    try {
+      let res: HttpResult
+      let hasImage: boolean
+      let extraErr = ''
+      if (meta.shape === 'gemini') {
+        res = await providerPost(
+          `${base}/models/${model}:generateContent`,
+          { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          { json: JSON.stringify({ contents: [{ parts: [{ text: TEST_PROMPT }] }], generationConfig: { responseModalities: ['IMAGE'] } }) }
+        )
+        hasImage = res.status < 400 && !!JSON.parse(res.text || '{}')?.candidates?.[0]
+      } else if (meta.shape === 'minimax') {
+        res = await providerPost(
+          `${base}/image_generation`,
+          { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          { json: JSON.stringify({ model, prompt: TEST_PROMPT, aspect_ratio: '1:1' }) }
+        )
+        const data = res.status < 400 ? JSON.parse(res.text || '{}') : null
+        if (data?.base_resp?.status_code) extraErr = String(data.base_resp.status_msg || `业务错误 ${data.base_resp.status_code}`)
+        hasImage = res.status < 400 && !extraErr && !!data?.data?.image_urls?.[0]
+      } else if (meta.shape === 'gptimage') {
+        res = await providerPost(
+          `${base}/images/generations`,
+          { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          { json: JSON.stringify({ model, prompt: TEST_PROMPT, size: '1024x1024', quality: 'low' }) }
+        )
+        hasImage = res.status < 400 && !!JSON.parse(res.text || '{}')?.data?.[0]
+      } else {
+        const body: Record<string, unknown> =
+          meta.shape === 'siliconflow'
+            ? { model, prompt: TEST_PROMPT, image: TEST_IMG }
+            : meta.shape === 'ark'
+              ? { model, prompt: TEST_PROMPT, response_format: 'url', size: '1024x1024' }
+              : { model, prompt: TEST_PROMPT, size: '1024x1024' }
+        res = await providerPost(
+          `${base}/images/generations`,
+          { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          { json: JSON.stringify(body) }
+        )
+        hasImage = res.status < 400 && !!JSON.parse(res.text || '{}')?.data?.[0]
+      }
+      const ms = Date.now() - t0
+      const out =
+        res.status >= 400
+          ? { ok: false, ms, text: `失败 ${res.status} · ${res.text.slice(0, 180)}` }
+          : extraErr
+            ? { ok: false, ms, text: `失败 · ${extraErr}` }
+            : !hasImage
+              ? { ok: false, ms, text: `HTTP ${res.status} 但响应里没有图像数据` }
+              : { ok: true, ms, text: `连通正常 · ${(ms / 1000).toFixed(1)}s` }
+      setTestOut((prev) => ({ ...prev, [value]: out }))
+      setStatus({ text: `${meta.label} ${out.ok ? '连通正常' : '连通失败'} · ${out.text}`, tone: out.ok ? 'ok' : 'err' })
+    } catch (err) {
+      const text = err instanceof Error ? err.message : `请求失败 · ${String(err)}`
+      setTestOut((prev) => ({ ...prev, [value]: { ok: false, ms: Date.now() - t0, text } }))
+      setStatus({ text: `${meta.label} 连通失败 · ${text}`, tone: 'err' })
+    } finally {
+      setTesting(null)
+    }
   }
 
   const generate = async () => {
@@ -1544,6 +1635,25 @@ function App() {
                     onChange={(e) => updateProviderConfig(panelMeta.value, { baseUrl: e.target.value })}
                     placeholder={panelMeta.baseUrl}
                   />
+                </div>
+                <div className="field">
+                  <label>连通性测试</label>
+                  <div className="test-row">
+                    <button
+                      className="test-btn"
+                      disabled={testing !== null}
+                      title="发一次最小生成请求，验证 Key、模型与网络"
+                      onClick={() => void runTest(panelMeta.value)}
+                    >
+                      {testing === panelMeta.value ? '测试中…' : '测试连通'}
+                    </button>
+                    {testing !== panelMeta.value && testOut[panelMeta.value] && (
+                      <span className={`test-out ${testOut[panelMeta.value].ok ? 'is-ok' : 'is-bad'}`}>
+                        {testOut[panelMeta.value].ok ? '✓' : '✗'} {testOut[panelMeta.value].text}
+                      </span>
+                    )}
+                  </div>
+                  <p className="help">发一次最小生成请求验证 Key、模型与网络，与正式生成走同一链路；可能产生少量费用。</p>
                 </div>
                 {!panelMeta.refs && <p className="help">该模型只按文字画图，不支持参考图。</p>}
               </div>

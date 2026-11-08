@@ -921,6 +921,53 @@ select.input {
   color: var(--text);
 }
 
+/* 连通性测试：按钮 + 就地结果 */
+.test-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.test-btn {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 5px;
+  border: 1px solid var(--line-2);
+  background: #15151a;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.test-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.test-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.test-out {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.test-out.is-ok {
+  color: var(--ok);
+}
+
+.test-out.is-bad {
+  color: var(--err);
+}
+
 .ratio-row {
   display: flex;
   gap: 5px;
@@ -1707,7 +1754,6 @@ select.input {
 .gallery[data-kind='costume'] .pose-thumb img,
 .gallery[data-kind='face'] .pose-thumb img {
   object-fit: cover;
-}
 }
 
 .pose-fallback {
