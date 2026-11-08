@@ -1015,6 +1015,27 @@ select.input {
   color: var(--text-faint);
 }
 
+/* 委婉描述开关：贴在描述框下方的一行小勾选 */
+.soft-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.soft-row input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.soft-row:hover {
+  color: var(--text);
+}
+
 .input.is-error {
   border-color: var(--err);
   box-shadow: 0 0 0 2px rgba(229, 72, 77, 0.18);

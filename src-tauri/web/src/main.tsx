@@ -7,14 +7,14 @@ import poseCatalogJson from './data/poses.json'
 import costumeCatalogJson from './data/costumes.json'
 import faceCatalogJson from './data/faces.json'
 
-type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string }
+type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string; soft?: boolean }
 type Settings = {
   provider: string
   ratio: string
   // 每个供应商一份独立配置：切模型各用各的 Key，模型/地址的自定义也互不覆盖
   configs: Record<string, ProviderUserConfig>
 }
-const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '' }
+const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '', soft: false }
 
 type RefKey = 'photo' | 'pose' | 'costume' | 'face'
 type Refs = Record<RefKey, string | null>
@@ -221,6 +221,21 @@ const providerPost = async (
   return { status: res.status, text: await res.text() }
 }
 
+// 常见服务端错误码 → 一句人话提示，拼在原文后面（原文保留，绝不吞）。
+// 实测案例：方舟对蕾丝吊带衫之类的出图回 OutputImageSensitiveContentDetected，
+// 用户看到的却像故障，其实是审核拦截。
+const ERROR_HINTS: [RegExp, string][] = [
+  [/OutputImageSensitiveContentDetected/, '生成结果被对方安全审核拦下，不是故障：把描述或参考图改保守些，或换一家服务商'],
+  [/InputImageSensitiveContentDetected/, '参考图被对方安全审核拦下：换一张参考图再试'],
+  [/AuthenticationError|InvalidAPIKey/, 'Key 无效或不被这个接口地址接受：核对 Key 与地址是否配套'],
+  [/ModelNotOpen|ModelNotDeployed/, '这个模型没在你账号开通：去服务商控制台开通后再试'],
+  [/AccessDenied/, '当前 Key 没有调这个接口的权限']
+]
+const humanizeError = (text: string) => {
+  const hint = ERROR_HINTS.find(([re]) => re.test(text))
+  return hint ? `${text}（提示：${hint[1]}）` : text
+}
+
 // 按已载入的参考图自动拼提示词：一张人物照片 + 一个姿势即可出图，服装/人脸是增强项
 function autoPrompt(refs: Refs): string {
   const seg: string[] = []
@@ -240,6 +255,20 @@ function autoPrompt(refs: Refs): string {
   if (refs.costume) seg.push('服装与穿搭遵循参考服装图的整套样式与材质')
   seg.push('画面高清、光影自然')
   return seg.join('，')
+}
+
+// 委婉化提示词：剥掉「隐形人/不要人/不要皮肤」式负向短语（关键字审核的高频
+// 命中点），并追加一句含蓄化引导。参考原项目 gen-ai-pose-image 的
+// 「违禁词优化」开关；默认关，开了才走这条路径，原文尽量保留。
+const GHOST_CLAUSE =
+  /不要人|不要头|不要脸|不要手|不要腿|不要身体|不要皮肤|不要露出(?:腿|皮肤)|隐形人|画面里只有衣服/g
+function softenPrompt(text: string): string {
+  const cleaned = text
+    .replace(GHOST_CLAUSE, ' ')
+    .replace(/[，,]{2,}/g, '，')
+    .replace(/^[\s，,。;；]+|[\s，,。;；]+$/g, '')
+    .trim()
+  return `${cleaned}，用含蓄日常的说法描写衣着与姿态，画面得体、可公开展示`
 }
 
 async function openExternal(url: string) {
@@ -330,7 +359,7 @@ function sanitizeConfigs(raw: unknown): Record<string, ProviderUserConfig> {
       const apiKey = typeof c.apiKey === 'string' ? c.apiKey : ''
       const model = typeof c.model === 'string' ? c.model : ''
       const baseUrl = typeof c.baseUrl === 'string' ? c.baseUrl : ''
-      if (apiKey || model || baseUrl) out[k] = { apiKey, model, baseUrl }
+      if (apiKey || model || baseUrl || c.soft === true) out[k] = { apiKey, model, baseUrl, soft: c.soft === true }
     }
   }
   return out
@@ -354,7 +383,7 @@ function loadSettings(): Settings {
         ratio: pickRatio(parsed.ratio),
         configs: sanitizeConfigs({
           [legacyProvider]: { apiKey: parsed.apiKey, model: parsed.model, baseUrl: parsed.baseUrl }
-        })
+        }),
       }
     }
     const provider =
@@ -636,7 +665,7 @@ function App() {
 
   const update = (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch }))
   // 每供应商独立配置的读取：Key 各用各的；模型/地址留空就跟随该供应商默认
-  const effConfig = (value: string): ProviderUserConfig => settings.configs[value] ?? EMPTY_PCONF
+  const effConfig = (value: string = settings.provider): ProviderUserConfig => settings.configs[value] ?? EMPTY_PCONF
   const effModel = (value: string = settings.provider) => effConfig(value).model.trim() || providerMeta(value).model
   // 地址只填根地址；用户把完整端点（…/images/generations|edits）粘进来也能用——
   // 本应用生成时自己拼这个尾巴，不剥掉会变成双重路径（实测方舟返回 500）
@@ -769,7 +798,7 @@ function App() {
       const ms = Date.now() - t0
       const out =
         res.status >= 400
-          ? { ok: false, ms, text: `失败 ${res.status} · ${res.text.slice(0, 180)}` }
+          ? { ok: false, ms, text: `失败 ${res.status} · ${humanizeError(res.text.slice(0, 180))}` }
           : extraErr
             ? { ok: false, ms, text: `失败 · ${extraErr}` }
             : !hasImage
@@ -806,7 +835,8 @@ function App() {
     }
 
     const refList = [refs.photo, refs.pose, refs.costume, refs.face].filter(Boolean) as string[]
-    const promptText = prompt.trim() || autoPrompt(refs)
+    // 委婉描述按服务商开关：接入不设限的服务商时关掉，保提示词原样
+    const promptText = effConfig().soft ? softenPrompt(prompt.trim() || autoPrompt(refs)) : prompt.trim() || autoPrompt(refs)
     const base = effBaseUrl().replace(/\/$/, '')
     if (!base) {
       openPanel()
@@ -843,7 +873,7 @@ function App() {
             })
           }
         )
-        if (status >= 400) throw new Error(`生成失败 ${status} · ${text.slice(0, 180)}`)
+        if (status >= 400) throw new Error(`生成失败 ${status} · ${humanizeError(text.slice(0, 180))}`)
         const seg = (JSON.parse(text)?.candidates?.[0]?.content?.parts ?? []).find(
           (p: { inlineData?: { data?: string } }) => p?.inlineData?.data
         )
@@ -864,7 +894,7 @@ function App() {
             })
           }
         )
-        if (status >= 400) throw new Error(`生成失败 ${status} · ${text.slice(0, 180)}`)
+        if (status >= 400) throw new Error(`生成失败 ${status} · ${humanizeError(text.slice(0, 180))}`)
         const data = JSON.parse(text)
         if (data?.base_resp?.status_code) {
           throw new Error(`生成失败 · ${data.base_resp.status_msg || 'MiniMax 返回错误'}`)
@@ -893,7 +923,7 @@ function App() {
             { json: JSON.stringify({ model, prompt: promptText, size: gptSize }) }
           )
         }
-        if (out.status >= 400) throw new Error(`生成失败 ${out.status} · ${out.text.slice(0, 180)}`)
+        if (out.status >= 400) throw new Error(`生成失败 ${out.status} · ${humanizeError(out.text.slice(0, 180))}`)
         const b64 = JSON.parse(out.text)?.data?.[0]?.b64_json || ''
         if (b64) output = `data:image/png;base64,${b64}`
       } else {
@@ -925,7 +955,7 @@ function App() {
           { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
           { json: JSON.stringify(body) }
         )
-        if (status >= 400) throw new Error(`生成失败 ${status} · ${text.slice(0, 180)}`)
+        if (status >= 400) throw new Error(`生成失败 ${status} · ${humanizeError(text.slice(0, 180))}`)
         const data = JSON.parse(text)
         output = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || ''
         if (output && !output.startsWith('http') && !output.startsWith('data:')) {
@@ -1463,6 +1493,14 @@ function App() {
               }
               rows={3}
             />
+            <label className="soft-row" title="生成时自动把提示词改写得含蓄些，并剥掉「不要人/不要皮肤」这类易触发审核的短语；每个服务商各自保存——接入不限制内容的服务商时可以关掉，提示词保持原样">
+              <input
+                type="checkbox"
+                checked={!!effConfig().soft}
+                onChange={(e) => updateProviderConfig(settings.provider, { soft: e.target.checked })}
+              />
+              <span>委婉描述（避开内容审核 · 按服务商各自保存）</span>
+            </label>
           </div>
 
           <div className="inspector-footer">
