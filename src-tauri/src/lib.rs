@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{Manager, State};
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -108,7 +109,8 @@ fn db_open(app: &tauri::AppHandle) -> Result<Connection, String> {
          prompt   TEXT NOT NULL DEFAULT '',
          file     TEXT NOT NULL,
          thumb    TEXT NOT NULL DEFAULT '',
-         size     INTEGER NOT NULL
+         size     INTEGER NOT NULL,
+         hash     TEXT NOT NULL DEFAULT ''
        );",
     )
     .map_err(|e| e.to_string())?;
@@ -124,6 +126,12 @@ fn db_open(app: &tauri::AppHandle) -> Result<Connection, String> {
     .query_row("SELECT COUNT(*) FROM pragma_table_info('history') WHERE name = 'ws'", [], |r| r.get(0));
   if matches!(has_ws, Ok(0)) {
     let _ = conn.execute("ALTER TABLE history ADD COLUMN ws INTEGER NOT NULL DEFAULT 1", []);
+  }
+  // 旧库补列：模板按图片字节哈希去重。老记录 hash 为空串，不会被误判成重复。
+  let has_hash: Result<i64, _> = conn
+    .query_row("SELECT COUNT(*) FROM pragma_table_info('templates') WHERE name = 'hash'", [], |r| r.get(0));
+  if matches!(has_hash, Ok(0)) {
+    let _ = conn.execute("ALTER TABLE templates ADD COLUMN hash TEXT NOT NULL DEFAULT ''", []);
   }
   Ok(conn)
 }
@@ -559,13 +567,18 @@ fn decode_image_data_url(data_url: &str) -> Result<(Vec<u8>, &'static str), Stri
 /// 退回原图，只慢不坏）。
 fn write_vault_image(vault: &std::path::Path, data_url: &str) -> Result<(String, String, i64), String> {
   let (bytes, ext) = decode_image_data_url(data_url)?;
+  write_vault_image_bytes(vault, &bytes, ext)
+}
+
+/// 同上，但调用方已解码好字节（模板去重要先算哈希，避免重复解码）。
+fn write_vault_image_bytes(vault: &std::path::Path, bytes: &[u8], ext: &str) -> Result<(String, String, i64), String> {
   fs::create_dir_all(vault).map_err(|e| format!("写入库目录失败：{e}"))?;
   let now = SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .unwrap_or_default();
   let name = format!("ziran-{}-{}.{ext}", now.as_secs(), now.subsec_nanos());
-  fs::write(vault.join(&name), &bytes).map_err(|e| format!("写入历史失败：{e}"))?;
-  let thumb_name = make_thumb(&bytes)
+  fs::write(vault.join(&name), bytes).map_err(|e| format!("写入历史失败：{e}"))?;
+  let thumb_name = make_thumb(bytes)
     .map(|t| {
       let tname = format!("{name}.thumb.jpg");
       match fs::write(vault.join(&tname), &t) {
@@ -775,15 +788,25 @@ fn template_add(
   model: String,
   prompt: String,
 ) -> Result<TemplateEntry, String> {
+  // 先解码算哈希查重：同一张图重复「存为模板」直接拒绝，不再写文件进库。
+  // 字节级哈希（SHA-256）——同一张图无论从画板还是历史走哪条路径进来，
+  // data URI 的 base64 编码一致，字节必然一致。
+  let (bytes, ext) = decode_image_data_url(&data_url)?;
+  let hash = format!("{:x}", Sha256::digest(&bytes));
+  let conn = db_open(&app)?;
+  if let Ok(id) = conn
+    .query_row::<i64, _, _>("SELECT id FROM templates WHERE hash = ?1", [&hash], |r| r.get(0))
+  {
+    return Err(format!("这张图已在模板库（#{id}），不再重复添加"));
+  }
   let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-  let (name, thumb_name, size) = write_vault_image(&dir.join("templates"), &data_url)?;
+  let (name, thumb_name, size) = write_vault_image_bytes(&dir.join("templates"), &bytes, ext)?;
   let now = SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .unwrap_or_default();
-  let conn = db_open(&app)?;
   conn
     .execute(
-      "INSERT INTO templates (created, provider, model, prompt, file, thumb, size) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+      "INSERT INTO templates (created, provider, model, prompt, file, thumb, size, hash) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
       rusqlite::params![
         now.as_secs() as i64,
         clip_meta(&provider),
@@ -791,7 +814,8 @@ fn template_add(
         clip_meta(&prompt),
         name,
         thumb_name,
-        size
+        size,
+        hash
       ],
     )
     .map_err(|e| e.to_string())?;

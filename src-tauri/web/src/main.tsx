@@ -1074,8 +1074,14 @@ function App() {
         void logEvent('info', 'template', `add id=${entry.id} provider=${entry.provider} model=${entry.model} size=${entry.size}`)
       }
     } catch (e) {
-      setStatus({ text: `存为模板失败：${e instanceof Error ? e.message : String(e)}`, tone: 'err' })
-      void logEvent('warn', 'template', `add failed: ${String(e)}`)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes('已在模板库')) {
+        // 后端按图片字节去重的回复：不是失败，正常告知即可
+        setStatus({ text: msg, tone: 'ok' })
+        return
+      }
+      setStatus({ text: `存为模板失败：${msg}`, tone: 'err' })
+      void logEvent('warn', 'template', `add failed: ${msg}`)
     }
   }
 
