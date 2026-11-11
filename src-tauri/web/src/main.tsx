@@ -1169,6 +1169,22 @@ function App() {
       }
     }
     const ext = /^data:image\/(png|jpeg|webp|gif)/.exec(dataUrl)?.[1]?.replace('jpeg', 'jpg') ?? 'png'
+    if (isPhone) {
+      // 手机端（Android）：没有桌面式保存对话框，直接写系统相册
+      // Pictures/Ziran（MediaStore，应用内插件 gallery 完成）。
+      if (!dataUrl.startsWith('data:image/')) {
+        setStatus({ text: '图片还没就绪，稍后再试', tone: 'err' })
+        return
+      }
+      try {
+        await invoke('plugin:gallery|save_to_gallery', { dataUrl })
+        setStatus({ text: '已保存到系统相册 · Pictures/Ziran', tone: 'ok' })
+      } catch (e) {
+        void logEvent('error', 'save', `gallery save failed: ${String(e)}`)
+        setStatus({ text: `保存到相册失败：${String(e)}`, tone: 'err' })
+      }
+      return
+    }
     try {
       const path = await save({
         title: '保存成图',

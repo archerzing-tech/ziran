@@ -1129,6 +1129,8 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     // fs：手机端存相册用——open() 对 content:// URI 走 openOutputStream
     .plugin(tauri_plugin_fs::init())
+    // gallery：手机端「保存到系统相册」，MediaStore 写 Pictures/Ziran
+    .plugin(tauri_plugin_gallery::init())
     .setup(|app| {
       // the old file-based cache is superseded by the SQLite store
       let _ = fs::remove_dir_all(app.path().app_cache_dir()?.join("gallery"));

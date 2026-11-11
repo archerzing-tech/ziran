@@ -1,0 +1,9 @@
+com.plugin.gallery.tauri-plugin-gallery-pngs-0 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/build/generated/res/pngs/debug
+com.plugin.gallery.tauri-plugin-gallery-updated_navigation_xml-1 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/build/generated/updated_navigation_xml/debug
+com.plugin.gallery.tauri-plugin-gallery-mergeDebugResources-2 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/build/intermediates/incremental/debug/mergeDebugResources/merged.dir
+com.plugin.gallery.tauri-plugin-gallery-mergeDebugResources-3 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir
+com.plugin.gallery.tauri-plugin-gallery-debug-4 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/build/intermediates/merged_res/debug/mergeDebugResources
+com.plugin.gallery.tauri-plugin-gallery-debug-5 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/build/intermediates/packaged_res/debug/packageDebugResources
+com.plugin.gallery.tauri-plugin-gallery-debug-6 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/src/debug/res
+com.plugin.gallery.tauri-plugin-gallery-main-7 /Users/ericever/work/ziran/src-tauri/plugins/gallery/android/src/main/res
+gradleHome-0 /Users/ericever/.gradle

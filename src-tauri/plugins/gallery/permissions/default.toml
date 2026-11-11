@@ -1,0 +1,3 @@
+[default]
+description = "允许把成图保存进系统相册（Pictures/Ziran）"
+permissions = ["allow-save-to-gallery"]

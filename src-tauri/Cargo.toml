@@ -25,6 +25,8 @@ tauri = { version = "2.12.5", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-log = "2"
+# 应用内插件：手机端把成图写进 Android 系统相册（Pictures/Ziran）
+tauri-plugin-gallery = { path = "plugins/gallery" }
 # 只用 sync（oneshot 取消信号），不引运行时——tauri 自带 tokio
 tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
 ureq = "2"
