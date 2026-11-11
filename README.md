@@ -74,6 +74,9 @@
 - `x64-setup.exe` → 64 位安装包
 - 系统缺 WebView2 运行时时，安装器会自动下载安装（需联网）
 
+**Android（10 及以上，arm64）**
+- `arm64-v8a.apk` → 主流安卓手机；自签名发布，安装时允许「未知来源»
+
 ## 开发
 
 ```bash
@@ -84,6 +87,12 @@ cd src-tauri && npm ci    # 应用目录：vite / @tauri-apps/cli
 npm run dev               # 仅前端（http://localhost:43123）
 npx tauri dev             # 桌面应用开发模式
 npx tauri build           # 打包（macOS 出 .app/.dmg，Windows 出 NSIS 安装包，CI 加 --bundles nsis）
+
+# Android（需要本机 Android SDK/NDK + JDK 17）
+# release 签名三环境变量：TAURI_ANDROID_KEYSTORE_PATH / _PASSWORD / _ALIAS
+# keystore 在仓库外由发布者保管，不随库提交
+npx tauri android dev                     # 手机/模拟器上开发调试
+npx tauri android build --apk --target aarch64   # 出自签名 release APK
 ```
 
 目录速览：

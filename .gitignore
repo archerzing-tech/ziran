@@ -6,7 +6,9 @@ dist/
 target/
 
 # Tauri generated
-src-tauri/gen/
+# gen/android 在 tauri android init 后归仓库所有，随库提交（CI 直接用，
+# 不再重新 init）；schemas 是构建时自动再生的，忽略
+src-tauri/gen/schemas/
 
 # Logs
 *.log

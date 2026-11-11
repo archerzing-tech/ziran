@@ -25,6 +25,10 @@ on:
         description: '构建 Windows 安装包'
         type: boolean
         default: true
+      android:
+        description: '构建 Android APK'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -47,6 +51,10 @@ env:
     **Windows（支持 Windows 10 及以上）**
     - `x64-setup.exe` → 64 位安装包
     - 首次安装会自动下载并安装 WebView2 运行时（系统缺失时），需要联网
+
+    **Android 10 及以上（arm64）**
+    - `arm64-v8a.apk` → 主流安卓手机
+    - 自签名发布：安装时允许「未知来源 / 仍要安装」
 
 jobs:
   # 先建一个草稿 release，后面各平台的产物上传到这个已存在的 release，
@@ -325,18 +333,118 @@ jobs:
             echo "uploaded ${name}"
           done
 
+  #  Android：只出 arm64 的 release APK（Android 10+，主流机型全是
+  #  arm64-v8a；Android 10 时代的 32 位设备是极老的残量）。自签名：
+  #  keystore 以 base64 存在 secrets，解码到 $RUNNER_TEMP（不落盘进
+  #  工作区），三个签名环境变量喂给 gradle 的 signingConfig。
+  build-android:
+    if: github.event_name == 'push' || inputs.android
+    needs: create-release
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src-tauri/package-lock.json
+
+      # gradle 要 JDK 17；runner 预装的 Android SDK/NDK 由 tauri CLI 自行探测
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-android-aarch64-${{ github.run_id }}
+          restore-keys: |
+            cargo-android-aarch64-
+
+      - name: Install frontend deps (root)
+        run: npm ci
+
+      - name: Install app deps
+        run: npm ci
+        working-directory: src-tauri
+
+      - name: Restore the self-signed keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "secret ANDROID_KEYSTORE_B64 is not set" >&2
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/ziran.keystore"
+          echo "TAURI_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/ziran.keystore" >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        env:
+          TAURI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          TAURI_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          for i in 1 2; do
+            if npx tauri android build --apk --target aarch64; then
+              exit 0
+            fi
+            echo "build attempt $i failed; retrying in 30s" >&2
+            sleep 30
+          done
+          echo "both build attempts failed" >&2
+          exit 1
+        working-directory: src-tauri
+
+      # 产物没有 → 是失败的构建，在这里说破，不绿灯发空 release
+      - name: Upload the APK to the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.create-release.outputs.releaseId }}
+        run: |
+          files=$(find src-tauri/gen/android -type f -name '*release*.apk' -path '*outputs/apk*')
+          if [ -z "$files" ]; then
+            echo "no apk was built" >&2
+            exit 1
+          fi
+          for f in $files; do
+            name=$(basename "$f")
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets" \
+              --jq '.[] | select(.name == "'"${name}"'") | .id' \
+              | while read -r asset; do
+                  gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset}"
+                done
+            gh api "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${name}" \
+              --header "Content-Type: application/vnd.android.package-archive" \
+              --input "$f" >/dev/null
+            echo "uploaded ${name}"
+          done
+
   # 产物都落进了草稿；这一步把它转正。
   publish-release:
     runs-on: ubuntu-latest
-    needs: [create-release, build-macos, build-windows]
+    needs: [create-release, build-macos, build-windows, build-android]
     # 平台被关掉是主动跳过：skipped 不算失败，release 带着要的东西发布。
-    # 但两个平台全跳过不算发布——至少要有一个平台的产物。
+    # 但三个平台全跳过不算发布——至少要有一个平台的产物。
     if: >-
       always() &&
       needs.create-release.result == 'success' &&
       (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped') &&
       (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
-      (needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
+      (needs.build-android.result == 'success' || needs.build-android.result == 'skipped') &&
+      (needs.build-macos.result == 'success' || needs.build-windows.result == 'success' || needs.build-android.result == 'success')
     steps:
       - name: Publish the release
         env:
