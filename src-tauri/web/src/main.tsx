@@ -2143,8 +2143,7 @@ function App() {
                       <span>允许成人向内容（解除得体约束）</span>
                     </label>
                     <p className="help">
-                      只对上面选中的「{panelMeta.label}」生效，各模型互不影响，默认打开。生成被审核拦下时保持打开多数能过；
-                      接入不限制内容的服务商时可以关掉，提示词保持原样。
+                      只对「{panelMeta.label}」生效，默认打开；被审核拦下时保持打开多数能过，服务商不限制内容时可关掉。
                     </p>
                   </div>
                 </div>
@@ -2154,7 +2153,7 @@ function App() {
                     <button
                       className="test-btn"
                       disabled={testing !== null}
-                      title="发一次最小生成请求，验证 Key、模型与网络"
+                      title="发一次最小生成请求验证 Key、模型与网络，与正式生成走同一链路"
                       onClick={() => void runTest(panelMeta.value)}
                     >
                       {testing === panelMeta.value ? '测试中…' : '测试连通'}
@@ -2165,7 +2164,7 @@ function App() {
                       </span>
                     )}
                   </div>
-                  <p className="help">发一次最小生成请求验证 Key、模型与网络，与正式生成走同一链路；可能产生少量费用。</p>
+                  <p className="help">发一次最小生成请求验证 Key、模型与网络；可能产生少量费用。</p>
                 </div>
                 {!panelMeta.refs && <p className="help">该模型只按文字画图，不支持参考图。</p>}
                 {panelMeta.value.startsWith('custom-') && (

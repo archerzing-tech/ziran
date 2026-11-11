@@ -1336,11 +1336,13 @@ select.input {
   color: var(--text-faint);
 }
 
-/* 内容合规：模型配置面板里的一组勾选（委婉描述 / 允许成人向内容） */
+/* 内容合规：模型配置面板里的一组勾选（委婉描述 / 允许成人向内容），
+   宽度够时并排一行省高度，窄窗口自动换行 */
 .panel-check {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 7px 16px;
   margin-top: 2px;
 }
 
@@ -1459,7 +1461,9 @@ select.input {
   display: flex;
   flex-direction: column;
   width: min(700px, calc(100vw - 48px));
-  max-height: min(600px, calc(100vh - 64px));
+  /* 700：自定义中转站的表单多出「名称/删除」两个字段，
+     600px 定高会把「连通性测试」顶出可视区（滚动条隐藏时像被挡住） */
+  max-height: min(700px, calc(100vh - 48px));
   border-radius: 12px;
   border: 1px solid var(--line-2);
   background: #16161c;
@@ -1601,10 +1605,24 @@ select.input {
 
 .panel-edit {
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 9px;
+}
+
+/* 滚动条常显：超出时让「下面还有字段」看得见，而不是像被裁掉 */
+.panel-edit::-webkit-scrollbar {
+  width: 8px;
+}
+
+.panel-edit::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 4px;
+}
+
+.panel-edit::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
 }
 
 .panel-edit .provider-desc {
