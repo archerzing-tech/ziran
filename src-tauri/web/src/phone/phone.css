@@ -133,6 +133,28 @@ html[data-app='phone'] .k-app {
   justify-content: center;
 }
 
+/* 顶栏「+」新建工程：与设置齿轮同款圆钮 */
+.k-plus {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--k-panel);
+  color: var(--k-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-plus:disabled {
+  opacity: 0.4;
+}
+
+/* 确认面板里的主行动按钮：直接落红态（面板本身就是确认步骤） */
+.k-sheet .k-newproj.is-arm {
+  border-radius: 13px;
+}
+
 /* ---------------- 取景框 ---------------- */
 .k-vf {
   flex: 1 1 auto;

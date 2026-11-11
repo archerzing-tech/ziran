@@ -763,6 +763,8 @@ export function PhoneApp(ctx: PhoneCtx) {
   const [provSheet, setProvSheet] = useState(false)
   const [viewerItem, setViewerItem] = useState<HistoryItem | null>(null)
   const [ratioOpen, setRatioOpen] = useState(false)
+  // 顶栏「+」的新建工程确认面板
+  const [newOpen, setNewOpen] = useState(false)
 
   // 取景框：翻底片的下标；null = 看最新成片
   const [vfIdx, setVfIdx] = useState<number | null>(null)
@@ -958,6 +960,7 @@ export function PhoneApp(ctx: PhoneCtx) {
   useBackClose(histOpen !== null, () => setHistOpen(null))
   useBackClose(setOpen, () => setSetOpen(false))
   useBackClose(provSheet, () => setProvSheet(false))
+  useBackClose(newOpen, () => setNewOpen(false))
   useBackClose(ratioOpen, () => setRatioOpen(false))
   useBackClose(ctx.galleryOpen !== null, () => ctx.setGalleryOpen(null))
 
@@ -989,6 +992,15 @@ export function PhoneApp(ctx: PhoneCtx) {
           ) : (
             <span className="k-model-name">未接入 · 点此配置</span>
           )}
+        </button>
+        <button
+          className="k-plus"
+          onClick={() => setNewOpen(true)}
+          disabled={busy}
+          aria-label="新建工程"
+          title="新建工程"
+        >
+          <Icon name="plus" size={15} />
         </button>
         <button className="k-gear" onClick={() => setSetOpen(true)} aria-label="设置">
           <Icon name="settings" size={15} />
@@ -1252,6 +1264,34 @@ export function PhoneApp(ctx: PhoneCtx) {
           }}
           onClose={() => setSlotSheet(null)}
         />
+      )}
+
+      {/* 新建工程确认（顶栏 +） */}
+      {newOpen && (
+        <div className="k-wrap" onClick={() => setNewOpen(false)}>
+          <div className="k-sheet" onClick={(e) => e.stopPropagation()}>
+            <span className="k-grab" />
+            <header className="k-sheet-head">
+              <h4>
+                新建工程
+                <span>四类参考、描述、当前成图都会清掉</span>
+              </h4>
+              <button className="k-clear" onClick={() => setNewOpen(false)}>
+                取消
+              </button>
+            </header>
+            <button
+              className="k-newproj is-arm"
+              onClick={() => {
+                ctx.newProject()
+                setNewOpen(false)
+              }}
+            >
+              清空并新建
+              <span>画板回到初始状态，不可撤销</span>
+            </button>
+          </div>
+        </div>
       )}
 
       {/* 模型切换抽屉 */}
