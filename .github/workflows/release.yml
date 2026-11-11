@@ -52,8 +52,9 @@ env:
     - `x64-setup.exe` → 64 位安装包
     - 首次安装会自动下载并安装 WebView2 运行时（系统缺失时），需要联网
 
-    **Android 10 及以上（arm64）**
-    - `arm64-v8a.apk` → 主流安卓手机
+    **Android 10 及以上**
+    - `arm64-v8a.apk` → 64 位手机（主流机型）
+    - `armeabi-v7a.apk` → 32 位手机（少量老机型）
     - 自签名发布：安装时允许「未知来源 / 仍要安装」
 
 jobs:
@@ -333,10 +334,11 @@ jobs:
             echo "uploaded ${name}"
           done
 
-  #  Android：只出 arm64 的 release APK（Android 10+，主流机型全是
-  #  arm64-v8a；Android 10 时代的 32 位设备是极老的残量）。自签名：
-  #  keystore 以 base64 存在 secrets，解码到 $RUNNER_TEMP（不落盘进
-  #  工作区），三个签名环境变量喂给 gradle 的 signingConfig。
+  #  Android：arm64-v8a 与 armeabi-v7a 分包发布（--split-per-abi 走
+  #  tauri gradle 插件现成的 per-ABI flavor，各出一个只含本 ABI 的
+  #  APK）。自签名：keystore 以 base64 存在 secrets，解码到
+  #  $RUNNER_TEMP（不落盘进工作区），三个签名环境变量喂给 gradle
+  #  的 signingConfig。
   build-android:
     if: github.event_name == 'push' || inputs.android
     needs: create-release
@@ -362,7 +364,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android, armv7-linux-androideabi
 
       - uses: actions/cache@v4
         with:
@@ -370,9 +372,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: cargo-android-aarch64-${{ github.run_id }}
+          key: cargo-android-${{ github.run_id }}
           restore-keys: |
-            cargo-android-aarch64-
+            cargo-android-
 
       - name: Install frontend deps (root)
         run: npm ci
@@ -398,7 +400,7 @@ jobs:
           TAURI_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           for i in 1 2; do
-            if npx tauri android build --apk --target aarch64; then
+            if npx tauri android build --apk --target aarch64 --target armv7 --split-per-abi; then
               exit 0
             fi
             echo "build attempt $i failed; retrying in 30s" >&2
@@ -420,7 +422,13 @@ jobs:
             exit 1
           fi
           for f in $files; do
-            name=$(basename "$f")
+            #  分包产物的 flavor 名是 arch 短名（arm64/arm），资产名改用
+            #  ABI 全名，和 release 正文对得上
+            case "$(basename "$f")" in
+              app-arm64-release.apk) name=arm64-v8a.apk ;;
+              app-arm-release.apk) name=armeabi-v7a.apk ;;
+              *) name=$(basename "$f") ;;
+            esac
             gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets" \
               --jq '.[] | select(.name == "'"${name}"'") | .id' \
               | while read -r asset; do
