@@ -1113,7 +1113,7 @@ export function PhoneApp(ctx: PhoneCtx) {
           const allEmpty = refCount === 0
           return (
             <button className="k-slot" key={k} onClick={() => setSlotSheet(k)} aria-label={REF_META[k].name}>
-              {k === 'photo' && allEmpty && !busy && <span className="k-slot-lead">从这开始</span>}
+              {k === 'pose' && allEmpty && !busy && <span className="k-slot-lead">从这开始</span>}
               <span className={`k-orb${url ? ' is-filled' : ''}`}>
                 {url ? <RefThumb url={url} kind={k} /> : <Icon name={SLOT_ICON[k]} size={16} />}
               </span>
@@ -1125,7 +1125,6 @@ export function PhoneApp(ctx: PhoneCtx) {
 
       {/* 配方条 */}
       <p className="k-combo">
-        <b>配方</b>
         <span>{combo}</span>
       </p>
 
