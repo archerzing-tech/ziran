@@ -84,16 +84,17 @@ html[data-app='phone'] .k-app {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 8px;
 }
 
 .k-model {
+  /* 撑满剩余宽度，模型名过长时省略号截断；10px 间隙留给设置按钮 */
+  flex: 1 1 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  max-width: 78%;
   height: 32px;
   padding: 0 12px;
   border-radius: 999px;
