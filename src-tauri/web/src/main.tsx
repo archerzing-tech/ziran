@@ -2686,7 +2686,13 @@ function RefGallery({
                 )}
               </>
             ) : (
-              <span className="foot-hint">选择一项 · 双击直接载入{kind === 'pose' ? '，再选机位' : ''}</span>
+              <span className="foot-hint">
+                {isPhone ? (
+                  <>点选一项{kind === 'pose' ? '，可换机位' : ''}</>
+                ) : (
+                  <>选择一项 · 双击直接载入{kind === 'pose' ? '，再选机位' : ''}</>
+                )}
+              </span>
             )}
           </div>
           {catalog.source ? (

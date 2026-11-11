@@ -1427,6 +1427,52 @@ html[data-app='phone'] .gallery-foot {
   padding-bottom: calc(9px + env(safe-area-inset-bottom, 0px));
 }
 
+/* 竖屏窄幅下 168px 侧栏会把图区挤成单列大图：把系统分类并进顶部
+   横排（可横滑），图区通栏强制两列小卡，一屏约能看到 4 张。 */
+html[data-app='phone'] .gallery-body {
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-app='phone'] .gallery-side {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-right: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+html[data-app='phone'] .side-item {
+  flex: none;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+}
+
+html[data-app='phone'] .side-item.is-active {
+  border-color: rgba(76, 141, 255, 0.5);
+}
+
+html[data-app='phone'] .pose-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+html[data-app='phone'] .pose-caption {
+  padding: 4px 6px;
+}
+
+html[data-app='phone'] .pose-name {
+  font-size: 10px;
+}
+
 /* ---------------- 桌面「模型配置」面板的手机适配（+08：手机上全屏可用） ---------------- */
 html[data-app='phone'] .overlay {
   padding: 0;
