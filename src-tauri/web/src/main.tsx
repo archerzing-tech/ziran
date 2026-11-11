@@ -2180,38 +2180,43 @@ function App() {
             </div>
             <div className="panel-foot">
               <div className="provider-config">
-                <span className="provider-config-label">providers.json</span>
-                <button
-                  className="key-jump"
-                  title={providersPath || '用系统文本编辑器打开 providers.json'}
-                  onClick={() =>
-                    invoke<string | null>('read_config_file', { name: 'providers.json' })
-                      .then((cur) =>
-                        cur === null
-                          ? invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2) })
-                          : undefined,
-                      )
-                      .then(() => invoke('edit_config_file', { name: 'providers.json' }))
-                      .then(() => setStatus({ text: 'providers.json 已在系统文本编辑器打开，改完保存，回来点「重新加载」生效', tone: 'ok' }))
-                      .catch(() => setStatus({ text: '没能打开编辑器，可手动编辑配置文件夹里的 providers.json', tone: 'err' }))
-                  }
-                >
-                  编辑配置文件 ↗
-                </button>
-                <button className="key-jump" onClick={() => void applyProvidersFile(true)}>
-                  重新加载
-                </button>
-                <button
-                  className="key-jump"
-                  title="打开 ziran.log：生成与连通性测试的错误都记录在这里（不含 Key）"
-                  onClick={() =>
-                    invoke('open_log_file')
-                      .then(() => setStatus({ text: 'ziran.log 已在文本编辑器打开', tone: 'ok' }))
-                      .catch(() => setStatus({ text: '没能打开日志文件', tone: 'err' }))
-                  }
-                >
-                  打开日志
-                </button>
+                {/* 手机端没有系统编辑器/日志查看的入口，这三项只留在桌面 */}
+                {!isPhone && (
+                  <>
+                    <span className="provider-config-label">providers.json</span>
+                    <button
+                      className="key-jump"
+                      title={providersPath || '用系统文本编辑器打开 providers.json'}
+                      onClick={() =>
+                        invoke<string | null>('read_config_file', { name: 'providers.json' })
+                          .then((cur) =>
+                            cur === null
+                              ? invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(DEFAULT_PROVIDERS, null, 2) })
+                              : undefined,
+                          )
+                          .then(() => invoke('edit_config_file', { name: 'providers.json' }))
+                          .then(() => setStatus({ text: 'providers.json 已在系统文本编辑器打开，改完保存，回来点「重新加载」生效', tone: 'ok' }))
+                          .catch(() => setStatus({ text: '没能打开编辑器，可手动编辑配置文件夹里的 providers.json', tone: 'err' }))
+                      }
+                    >
+                      编辑配置文件 ↗
+                    </button>
+                    <button className="key-jump" onClick={() => void applyProvidersFile(true)}>
+                      重新加载
+                    </button>
+                    <button
+                      className="key-jump"
+                      title="打开 ziran.log：生成与连通性测试的错误都记录在这里（不含 Key）"
+                      onClick={() =>
+                        invoke('open_log_file')
+                          .then(() => setStatus({ text: 'ziran.log 已在文本编辑器打开', tone: 'ok' }))
+                          .catch(() => setStatus({ text: '没能打开日志文件', tone: 'err' }))
+                      }
+                    >
+                      打开日志
+                    </button>
+                  </>
+                )}
                 <button
                   className="key-jump"
                   onClick={() =>
@@ -2387,6 +2392,7 @@ function RefGallery({
   onClose: () => void
   onApply: (item: GalleryItem, view: GalleryView) => void
 }) {
+  const isPhone = useIsPhone()
   const [systemId, setSystemId] = useState(catalog.systems[0]?.id ?? catalog.poses[0]?.systemId ?? '')
   const [category, setCategory] = useState('全部')
   const [query, setQuery] = useState('')
@@ -2584,7 +2590,7 @@ function RefGallery({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜索编号、名称、分类"
-                autoFocus
+                autoFocus={!isPhone}
               />
             </label>
             <button className="icon-btn" onClick={onClose} title="关闭">

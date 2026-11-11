@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
 import {
   APP_VERSION,
+  CATALOGS,
   HistoryThumb,
   historyTime,
   Icon,
@@ -301,6 +302,7 @@ const IS_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator
 function SlotSheet({
   ctx,
   slot,
+  onCatalog,
   onGallery,
   onCamera,
   onTemplates,
@@ -309,6 +311,7 @@ function SlotSheet({
 }: {
   ctx: PhoneCtx
   slot: RefKey
+  onCatalog: (k: RefKey) => void
   onGallery: (k: RefKey) => void
   onCamera: (k: RefKey) => void
   onTemplates: (k: RefKey) => void
@@ -341,6 +344,15 @@ function SlotSheet({
           )}
         </header>
         <div className="k-src-grid">
+          {CATALOGS[slot] && (
+            <button className="k-src is-catalog" onClick={() => onCatalog(slot)}>
+              <b>
+                <Icon name="library" size={14} />
+                {REF_META[slot].name}图库
+              </b>
+              <span>{CATALOGS[slot]!.poses.length} 张可选 · 点选即载入</span>
+            </button>
+          )}
           <button className="k-src" onClick={() => onGallery(slot)}>
             <b>
               <Icon name="image" size={14} />
@@ -1123,7 +1135,7 @@ export function PhoneApp(ctx: PhoneCtx) {
           value={ctx.prompt}
           onChange={(e) => ctx.setPrompt(e.target.value)}
           placeholder="描述（可不填，默认沿用参考）"
-          rows={1}
+          rows={2}
           aria-label="描述"
         />
       </div>
@@ -1193,6 +1205,10 @@ export function PhoneApp(ctx: PhoneCtx) {
         <SlotSheet
           ctx={ctx}
           slot={slotSheet}
+          onCatalog={(k) => {
+            setSlotSheet(null)
+            ctx.setGalleryOpen(k)
+          }}
           onGallery={openGallery}
           onCamera={openCamera}
           onTemplates={(k) => {

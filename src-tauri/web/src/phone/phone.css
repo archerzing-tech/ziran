@@ -599,8 +599,7 @@ html[data-app='phone'] .k-app {
   font-size: 16px;
   line-height: 1.45;
   padding: 9px 12px;
-  height: 40px;
-  max-height: 64px;
+  height: 64px;
 }
 
 .k-prompt textarea::placeholder {
@@ -1390,6 +1389,44 @@ html[data-app='phone'] .k-app {
   opacity: 1;
 }
 
+/* ---------------- 图库浮层（姿势/服装/人脸）的手机适配：全屏可用 ----------------
+   手机端入口在槽位面板的「XX图库」按钮，浮层本体复用桌面组件，
+   这里只管铺满屏幕并让标题/工具两行排开。 */
+html[data-app='phone'] .gallery {
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+  border: 0;
+}
+
+html[data-app='phone'] .gallery-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+}
+
+html[data-app='phone'] .gallery-title {
+  flex: 1 1 100%;
+}
+
+html[data-app='phone'] .gallery-tools {
+  flex: 1 1 100%;
+}
+
+html[data-app='phone'] .gallery-tools .search {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin-left: 0;
+}
+
+html[data-app='phone'] .gallery-foot {
+  padding-bottom: calc(9px + env(safe-area-inset-bottom, 0px));
+}
+
 /* ---------------- 桌面「模型配置」面板的手机适配（+08：手机上全屏可用） ---------------- */
 html[data-app='phone'] .overlay {
   padding: 0;
@@ -1410,6 +1447,15 @@ html[data-app='phone'] .panel-body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 顶部的关闭 X 与底部的「完成」都贴着系统栏，各让出一根安全区 */
+html[data-app='phone'] .panel-head {
+  padding-top: calc(13px + env(safe-area-inset-top, 0px));
+}
+
+html[data-app='phone'] .panel-foot {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ---------------- 窄屏微调（≤360px 的紧凑机型） ---------------- */
