@@ -207,6 +207,25 @@ type ProjectState = {
 }
 type Project = { id: number; name: string; state: ProjectState | null }
 
+// 两段式确认的删除按钮：第一击进入待确认态（3 秒无操作自动复位），再击才真删。
+// 不用 window.confirm——WebView 里它是阻塞原语，样式也无法跟随主题。
+function DeleteConfirm({ label, onConfirm }: { label: string; onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 3000)
+    return () => clearTimeout(t)
+  }, [armed])
+  return (
+    <button
+      className={armed ? 'provider-del is-armed' : 'provider-del'}
+      onClick={() => (armed ? onConfirm() : setArmed(true))}
+    >
+      {armed ? '再点一次确认删除' : label}
+    </button>
+  )
+}
+
 function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [providers, setProviders] = useState<ProviderDef[]>(DEFAULT_PROVIDERS)
@@ -370,6 +389,49 @@ function App() {
     void applyProvidersFile(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 自定义中转站：providers.json 是唯一事实源，界面的新增/改名/删除都先写回
+  // 文件、成功后才更新内存；写失败（纯浏览器预览没有后端）就保持原状并报错。
+  // value 稳定不变，改名不影响它的 Key/模型等已存配置。
+  const isCustomProvider = (value: string) => value === 'custom' || value.startsWith('custom-')
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const persistProviders = async (list: ProviderDef[]): Promise<boolean> => {
+    try {
+      await invoke('write_config_file', { name: 'providers.json', contents: JSON.stringify(list, null, 2) })
+    } catch (e) {
+      setStatus({ text: `providers.json 写入失败：${String(e)}`, tone: 'err' })
+      return false
+    }
+    setProviders(list)
+    return true
+  }
+  const addCustomProvider = async () => {
+    const preset = DEFAULT_PROVIDERS.find((p) => p.value === 'custom')
+    if (!preset) return
+    const entry: ProviderDef = { ...preset, value: `custom-${Date.now().toString(36)}`, label: '自定义中转站' }
+    if (await persistProviders([...providers, entry])) {
+      setPanelProvider(entry.value)
+      // 直接聚焦「名称」框，顺手把默认名改成中转站自己的名字
+      setTimeout(() => nameInputRef.current?.focus(), 60)
+    }
+  }
+  const renameCustomProvider = async (value: string, label: string) => {
+    const name = label.trim()
+    if (!name || name === providerMeta(value).label) return
+    await persistProviders(providers.map((p) => (p.value === value ? { ...p, label: name } : p)))
+  }
+  const deleteCustomProvider = async (value: string) => {
+    const next = providers.filter((p) => p.value !== value)
+    if (!next.length || !(await persistProviders(next))) return
+    // 这个供应商的 Key 等配置一并清掉；正选中/正编辑的回落到列表第一个
+    setSettings((prev) => {
+      const configs = { ...prev.configs }
+      delete configs[value]
+      return { ...prev, configs }
+    })
+    if (settings.provider === value) update({ provider: next[0].value })
+    if (panelProvider === value) setPanelProvider(next[0].value)
+  }
 
   const activeRatio = ratioMeta(settings.ratio)
   // 画板随当前显示图片的真实比例自适应，避免参考图/成图留黑边；空板时用所选画幅比例
@@ -1991,9 +2053,33 @@ function App() {
                     </button>
                   )
                 })}
+                <button
+                  className="panel-add"
+                  onClick={() => void addCustomProvider()}
+                  title="新增一个 OpenAI 兼容的中转站，名称可改、可加多个"
+                >
+                  ＋ 新增中转站
+                </button>
               </nav>
               <div className="panel-edit">
                 <p className="provider-desc">{panelMeta.desc}</p>
+                {isCustomProvider(panelMeta.value) && (
+                  <div className="field">
+                    <label>名称</label>
+                    <input
+                      ref={nameInputRef}
+                      className="input"
+                      defaultValue={panelMeta.label}
+                      key={`name-${panelMeta.value}`}
+                      placeholder="给这个中转站起个名字，如「XX 中转」"
+                      onBlur={(e) => void renameCustomProvider(panelMeta.value, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                      }}
+                    />
+                    <p className="help">只改列表里的显示名（回车或点别处保存）；Key、模型仍按供应商各存各的</p>
+                  </div>
+                )}
                 <div className="field">
                   <label>API Key</label>
                   <div className="key-row">
@@ -2082,6 +2168,15 @@ function App() {
                   <p className="help">发一次最小生成请求验证 Key、模型与网络，与正式生成走同一链路；可能产生少量费用。</p>
                 </div>
                 {!panelMeta.refs && <p className="help">该模型只按文字画图，不支持参考图。</p>}
+                {panelMeta.value.startsWith('custom-') && (
+                  <div className="field">
+                    <label>删除</label>
+                    <DeleteConfirm
+                      label="删除这个中转站，连同它的 Key"
+                      onConfirm={() => void deleteCustomProvider(panelMeta.value)}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <div className="panel-foot">
