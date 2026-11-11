@@ -256,6 +256,8 @@ export type PhoneCtx = {
   refMeta: Record<RefKey, RefMeta | null>
   setActive: (k: RefKey) => void
   clearSlot: (k: RefKey) => void
+  /** 手机端「新建工程」：当前面板整个铺回空白（参考+描述+成图），不产生工作区标签 */
+  newProject: () => void
   pickFile: (file: File | undefined, key: RefKey) => void
   /** 手机端「最近底片 → 设为槽位」：整图 data URI 直接进槽 */
   setSlotImage: (key: RefKey, uri: string) => void
@@ -319,6 +321,9 @@ function SlotSheet({
   onClose: () => void
 }) {
   const url = ctx.refs[slot]
+  // 新建工程的两段确认：面板每次打开都重新挂载，状态天然归零
+  const [confirmNew, setConfirmNew] = useState(false)
+  const dirty = SLOT_KEYS.some((k) => ctx.refs[k]) || ctx.prompt.trim() !== '' || ctx.hasResult
   return (
     <div className="k-wrap" onClick={onClose}>
       <div className="k-sheet" onClick={(e) => e.stopPropagation()}>
@@ -382,6 +387,24 @@ function SlotSheet({
             <span>拿生成过的图当参考</span>
           </button>
         </div>
+        {dirty && (
+          <div className="k-sheet-foot">
+            <button
+              className={`k-newproj${confirmNew ? ' is-arm' : ''}`}
+              onClick={() => {
+                if (!confirmNew) {
+                  setConfirmNew(true)
+                  return
+                }
+                ctx.newProject()
+                onClose()
+              }}
+            >
+              {confirmNew ? '再点一次，确认清空' : '新建工程'}
+              <span>{confirmNew ? '四类参考、描述和当前成图都会清掉' : '清空参考与描述，从零开始'}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

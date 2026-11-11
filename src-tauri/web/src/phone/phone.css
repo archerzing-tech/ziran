@@ -937,6 +937,41 @@ html[data-app='phone'] .k-app {
   color: var(--k-faint);
 }
 
+/* 新建工程：选源面板底部的整宽动作，两段确认（点一次变成红色待确认态） */
+.k-sheet-foot {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed var(--k-line);
+}
+
+.k-newproj {
+  width: 100%;
+  border-radius: 13px;
+  border: 1px solid var(--k-line);
+  background: var(--k-panel);
+  color: var(--k-text);
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.k-newproj span {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--k-faint);
+}
+
+.k-newproj.is-arm {
+  border-color: rgba(229, 72, 77, 0.55);
+  background: rgba(229, 72, 77, 0.08);
+  color: #ff9296;
+}
+
 /* 模型抽屉列表 */
 .k-prov-list {
   display: flex;

@@ -1542,6 +1542,11 @@ function App() {
       refMeta={refMeta}
       setActive={setActive}
       clearSlot={(k) => setRefs((prev) => ({ ...prev, [k]: null }))}
+      newProject={() => {
+        // 手机端没有工作区标签栏，「新建工程」= 把当前面板铺回空白。
+        // 不走 createProject()：那会留一个手机端回不去的隐藏标签。
+        applyProjectState(freshProjectState())
+      }}
       pickFile={pickFile}
       prompt={prompt}
       setPrompt={setPrompt}
