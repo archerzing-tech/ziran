@@ -1951,7 +1951,10 @@ function App() {
             setResult('')
             setMissing(null)
             setGalleryOpen(null)
-            setStatus({ text: `已载入${REF_META[kind].name} ${item.code} ${item.name}${view.angle && view.angle !== '参考' ? ` · ${view.angle}` : ''}`, tone: 'ok' })
+            // 手机端不弹「已载入」状态条：图换上去了本身就看得见，每次
+            // 点选都弹一条反而吵。桌面端保留，载入哪张仍有记录。
+            if (!isPhone)
+              setStatus({ text: `已载入${REF_META[kind].name} ${item.code} ${item.name}${view.angle && view.angle !== '参考' ? ` · ${view.angle}` : ''}`, tone: 'ok' })
           }}
         />
       )}

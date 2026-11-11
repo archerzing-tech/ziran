@@ -725,7 +725,11 @@ function WorksViewer({
 
 /* ---------------- 手机端外壳：快门台 ---------------- */
 export function PhoneApp(ctx: PhoneCtx) {
-  const busy = ctx.busy || ctx.canvasBusy
+  // busy 只表示「在生成」：快门转圈、取消按钮、手势守卫都只认它。
+  // canvasBusy 是画板换参考图的短暂加载，之前混进 busy，结果每选一张
+  // 图库图片快门就假装在生成——用 mediaBusy 单独驱动取景框的转圈。
+  const busy = ctx.busy
+  const mediaBusy = busy || ctx.canvasBusy
   const ratio = ratioMeta(ctx.settings.ratio)
 
   // 浮层状态全部归属外壳：槽位面板 / 模板库 / 底片 / 设置 / 模型抽屉 / 回看
@@ -778,7 +782,8 @@ export function PhoneApp(ctx: PhoneCtx) {
   }, [ctx.status])
 
   const busyRef = useRef(busy)
-  busyRef.current = busy
+  // 换图加载的几百毫秒里也不接手势（保持原行为），但不算「生成中」
+  busyRef.current = busy || ctx.canvasBusy
 
   // 新成片回到取景框：闪一下 + 浮出操作条；翻页状态归零
   const prevSrc = useRef(ctx.canvasSource)
@@ -975,13 +980,17 @@ export function PhoneApp(ctx: PhoneCtx) {
         onPointerCancel={() => (swipe.current.on = false)}
       >
         <div className="k-vf-media" style={{ aspectRatio: `${ratio.w} / ${ratio.h}` }}>
-          {busy ? (
+          {mediaBusy ? (
             <div className="k-vf-gen">
               <span className="k-spin k-spin-lg" />
-              <b>生成中</b>
-              <span className="k-gen-sub">
-                {burstShot > 0 ? `连拍 ${burstShot} / ${BURST_MAX}` : '单张约 6–30 秒'}
-              </span>
+              {busy && (
+                <>
+                  <b>生成中</b>
+                  <span className="k-gen-sub">
+                    {burstShot > 0 ? `连拍 ${burstShot} / ${BURST_MAX}` : '单张约 6–30 秒'}
+                  </span>
+                </>
+              )}
             </div>
           ) : viewing ? (
             <div className="k-vf-hist">
@@ -1022,10 +1031,10 @@ export function PhoneApp(ctx: PhoneCtx) {
         </div>
 
         {/* 取景框四角 */}
-        {!busy && <span className="k-br k-br-tl" />}
-        {!busy && <span className="k-br k-br-tr" />}
-        {!busy && <span className="k-br k-br-bl" />}
-        {!busy && <span className="k-br k-br-br" />}
+        {!mediaBusy && <span className="k-br k-br-tl" />}
+        {!mediaBusy && <span className="k-br k-br-tr" />}
+        {!mediaBusy && <span className="k-br k-br-bl" />}
+        {!mediaBusy && <span className="k-br k-br-br" />}
 
         {/* AI 角标（生成中让位给取消） */}
         {busy ? (
