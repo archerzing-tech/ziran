@@ -1,0 +1,623 @@
+<title>快门台 · 完整流程稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* ============================================================
+   快门台完整流程稿：同一张制图纸底，8 台同机身的屏幕样机。
+   机内只此一套色：暖炭底 + 琥珀快门。琥珀只给「可按下 / 进行中」。
+   ============================================================ */
+:root {
+  --paper: #ECEEEC; --panel: #F7F8F6; --ink: #1C2226; --muted: #61707B;
+  --line: #D7DBD8; --line-strong: #B9C0BC;
+  --amber: #FFB454; --amber-deep: #B97A1E; --danger: #E5484D;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --display: "Sora", -apple-system, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+  --sans: -apple-system, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+}
+html, body { margin: 0; }
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--sans);
+  font-size: 15px; line-height: 1.65;
+  padding-block: 40px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1200px; margin: 0 auto; }
+.kicker { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; color: var(--muted); margin: 0 0 10px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(27px, 4.4vw, 42px); line-height: 1.15; letter-spacing: -.015em; margin: 0 0 12px; }
+.lede { max-width: 64ch; margin: 0; }
+
+/* 优化清单 */
+.optim { margin-top: 26px; border: 1px solid var(--line-strong); background: var(--panel); padding: 16px 18px 8px; }
+.optim h2 { font-family: var(--display); font-size: 15px; margin: 0 0 8px; }
+.optim ul { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 40px; }
+@media (max-width: 760px) { .optim ul { columns: 1; } }
+.optim li { font-size: 13.5px; padding: 4px 0 8px; break-inside: avoid; }
+.optim li b { font-family: var(--mono); font-weight: 500; color: var(--amber-deep); margin-right: 8px; }
+
+/* 分节 */
+.sec { border-top: 1px solid var(--line-strong); margin-top: 44px; padding-top: 26px; }
+.sec > h2 { font-family: var(--display); font-size: clamp(19px, 2.4vw, 24px); margin: 0 0 4px; }
+.sec > .sub { font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin: 0 0 24px; }
+.flow { display: flex; flex-wrap: wrap; gap: 40px 34px; align-items: flex-start; }
+.shot { width: 322px; }
+@media (max-width: 400px) { .shot { width: 100%; max-width: 358px; margin: 0 auto; } }
+.cap { margin: 14px 0 0; display: flex; align-items: baseline; gap: 9px; }
+.cap .idx { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cap h3 { font-family: var(--display); font-size: 16.5px; margin: 0; font-weight: 600; }
+.notes { margin: 8px 0 0; padding: 0; list-style: none; }
+.notes li { display: flex; gap: 8px; font-size: 13px; color: var(--ink); padding: 3px 0; }
+.notes .n { font-family: var(--mono); font-size: 11.5px; color: var(--muted); flex: none; padding-top: 2.5px; }
+
+/* ---------- 手机样机 ---------- */
+.phone {
+  width: 344px; margin: 0 auto; border-radius: 40px; padding: 11px; background: #08090a;
+  box-shadow: 0 1px 2px rgba(28,34,38,.28), 0 18px 44px -18px rgba(28,34,38,.45), inset 0 0 0 1.5px #3a3f42;
+}
+.screen { position: relative; height: 668px; border-radius: 30px; overflow: hidden; margin: 0 auto; width: 322px; max-width: 100%; background: #131316; color: #EDEDEA; }
+.punch { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 13px; height: 13px; border-radius: 50%; background: #060708; box-shadow: inset 0 0 0 2px rgba(255,255,255,.05); z-index: 5; }
+.sbar { position: absolute; top: 0; left: 0; right: 0; height: 40px; z-index: 4; display: flex; align-items: center; justify-content: space-between; padding: 8px 22px 0; font-family: var(--mono); font-size: 12px; color: rgba(255,255,255,.85); pointer-events: none; }
+.sicons { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
+.batt { width: 18px; height: 9px; border-radius: 2.5px; border: 1px solid rgba(255,255,255,.7); position: relative; }
+.batt::before { content: ""; position: absolute; inset: 1.5px; right: 5px; background: rgba(255,255,255,.85); border-radius: 1px; }
+.batt::after { content: ""; position: absolute; right: -3.5px; top: 2px; width: 2px; height: 4px; background: rgba(255,255,255,.7); border-radius: 0 1px 1px 0; }
+.gbar { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); width: 108px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.35); z-index: 9; }
+
+.ph { background-repeat: no-repeat; background-size: 62% auto, cover; background-position: center 74%, center; }
+.ph-warm  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(165deg, #C99B6C 0%, #8A6A54 44%, #4E4245 100%); }
+.ph-cool  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(160deg, #9FB4B8 0%, #64808B 48%, #35464F 100%); }
+.ph-dusk  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(170deg, #B0A2B6 0%, #77647E 46%, #3D3346 100%); }
+.ph-moss  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(155deg, #A8B39A 0%, #6E7C63 50%, #3B443A 100%); }
+.ph-studio{ background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(160deg, #D8D2CA 0%, #A29A94 52%, #6E6862 100%); }
+
+/* ---------- 主屏骨架 ---------- */
+.top { position: absolute; top: 44px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: center; z-index: 3; }
+.model-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 999px; background: rgba(255,255,255,.07); font-size: 12px; color: rgba(255,255,255,.88); }
+.model-chip i { font-style: normal; font-size: 9px; opacity: .6; }
+.gear { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.78); }
+
+.vf { position: absolute; top: 86px; left: 14px; right: 14px; height: 268px; border-radius: 18px; overflow: hidden; background: #0d0d10; }
+.vf .img { position: absolute; inset: 0; }
+.br { position: absolute; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.85); z-index: 2; }
+.br.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; border-radius: 4px 0 0 0; }
+.br.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; border-radius: 0 4px 0 0; }
+.br.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; border-radius: 0 0 0 4px; }
+.br.brr { bottom: 10px; right: 10px; border-left: 0; border-top: 0; border-radius: 0 0 4px 0; }
+.vf-ratio { position: absolute; left: 10px; bottom: 10px; z-index: 3; height: 24px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: rgba(12,12,14,.62); font-family: var(--mono); font-size: 11px; }
+.vf-mark { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(12,12,14,.62); color: var(--amber); }
+.vf-count { position: absolute; top: 10px; right: 10px; z-index: 3; height: 22px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border-radius: 7px; background: rgba(12,12,14,.62); font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,.85); }
+.vf-sw { position: absolute; top: 50%; transform: translateY(-50%); z-index: 3; width: 22px; height: 34px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.55); background: rgba(12,12,14,.4); }
+.vf-sw.l { left: 0; border-radius: 0 8px 8px 0; }
+.vf-sw.r { right: 0; border-radius: 8px 0 0 8px; }
+.vf-flash { position: absolute; inset: 0; z-index: 2; box-shadow: inset 0 0 0 3px rgba(255,180,84,.65), inset 0 0 34px rgba(255,180,84,.28); border-radius: 18px; pointer-events: none; }
+
+/* 空态 */
+.vf-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; text-align: center; padding: 0 26px; border: 1.5px dashed rgba(255,255,255,.18); border-radius: 16px; margin: 6px; }
+.vf-empty b { font-size: 15px; font-weight: 600; color: rgba(255,255,255,.9); }
+.vf-empty span { font-size: 11px; color: rgba(255,255,255,.45); line-height: 1.6; }
+.vf-empty svg { color: rgba(255,255,255,.35); }
+
+/* 生成中 */
+.vf-shimmer { position: absolute; inset: 0; background: linear-gradient(100deg, rgba(255,255,255,.03) 30%, rgba(255,180,84,.12) 50%, rgba(255,255,255,.03) 70%); background-size: 220% 100%; animation: sh 1.7s linear infinite; }
+@keyframes sh { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+@media (prefers-reduced-motion: reduce) { .vf-shimmer { animation: none; } }
+.gen-cue { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.gen-ring { width: 58px; height: 58px; border-radius: 50%; background: conic-gradient(var(--amber) 0 42%, rgba(255,255,255,.12) 42% 100%); display: flex; align-items: center; justify-content: center; }
+.gen-ring i { width: 44px; height: 44px; border-radius: 50%; background: rgba(10,10,12,.9); display: flex; align-items: center; justify-content: center; font-style: normal; font-family: var(--mono); font-size: 12px; color: var(--amber); }
+.gen-cue b { font-size: 13px; font-weight: 600; }
+.gen-cue span { font-size: 10.5px; color: rgba(255,255,255,.5); font-family: var(--mono); }
+.vf-cancel { position: absolute; top: 10px; left: 10px; z-index: 4; height: 24px; padding: 0 9px; display: inline-flex; align-items: center; gap: 4px; border-radius: 7px; background: rgba(12,12,14,.66); font-size: 10.5px; color: rgba(255,255,255,.8); }
+.vf-ai { position: absolute; top: 10px; left: 10px; z-index: 3; height: 22px; padding: 0 8px; display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; background: rgba(12,12,14,.62); font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.85); }
+.vf-ai b { color: var(--amber); font-weight: 500; }
+.dock-mid { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.dock-mid > i { font-style: normal; font-size: 9px; color: rgba(255,255,255,.6); letter-spacing: .06em; }
+.first-tip { position: absolute; bottom: 112px; left: 50%; transform: translateX(-50%); z-index: 3; height: 26px; padding: 0 11px; border-radius: 999px; background: rgba(255,180,84,.14); border: 1px solid rgba(255,180,84,.38); color: #FFC97E; font-size: 10.5px; display: flex; align-items: center; white-space: nowrap; }
+.first-tip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--amber); margin-right: 6px; }
+.mrow .pen { margin-left: auto; color: rgba(255,255,255,.5); }
+.m-sug { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.m-sug span { height: 26px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px dashed rgba(255,255,255,.18); font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.62); }
+.m-sug .on { border-style: solid; border-color: rgba(255,180,84,.5); color: #FFC97E; background: rgba(255,180,84,.08); }
+.r4 { margin-top: 9px; font-family: var(--mono); font-size: 9.5px; color: rgba(255,255,255,.4); }
+
+/* 出片操作条 */
+.vf-acts { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 4; display: flex; gap: 6px; justify-content: center; }
+.vf-act { height: 30px; padding: 0 11px; display: inline-flex; align-items: center; gap: 5px; border-radius: 9px; background: rgba(12,12,14,.72); backdrop-filter: blur(3px); font-size: 11px; color: rgba(255,255,255,.9); }
+.vf-act.hot { background: rgba(255,180,84,.92); color: #241703; font-weight: 600; }
+
+/* 槽位 */
+.slots { position: absolute; top: 362px; left: 14px; right: 14px; display: flex; justify-content: space-between; }
+.slot { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 72px; position: relative; }
+.orb { width: 58px; height: 58px; border-radius: 50%; position: relative; display: flex; align-items: center; justify-content: center; }
+.orb.filled { border: 2px solid var(--amber); padding: 2px; }
+.orb.filled .ph { position: absolute; inset: 2px; border-radius: 50%; }
+.orb.empty { border: 1.6px dashed rgba(255,255,255,.3); color: rgba(255,255,255,.5); }
+.slot i { font-style: normal; font-size: 10.5px; color: rgba(255,255,255,.62); }
+.slot.filled i { color: #FFC97E; }
+.slot .lead { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); height: 15px; padding: 0 7px; border-radius: 999px; background: var(--amber); color: #241703; font-size: 8.5px; font-weight: 700; display: flex; align-items: center; white-space: nowrap; }
+
+/* 配方条 + 描述 */
+.combo { position: absolute; top: 456px; left: 14px; right: 14px; height: 18px; display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.5); }
+.combo b { color: #FFC97E; font-weight: 500; }
+.prompt { position: absolute; top: 480px; left: 14px; right: 14px; height: 44px; border-radius: 12px; background: rgba(255,255,255,.06); display: flex; align-items: center; padding: 0 12px; gap: 8px; font-size: 12px; color: rgba(255,255,255,.8); }
+.prompt.empty { color: rgba(255,255,255,.4); }
+.prompt .caret { width: 1.5px; height: 16px; background: var(--amber); }
+
+/* 底部 dock */
+.dock { position: absolute; left: 0; right: 0; bottom: 24px; display: flex; align-items: center; justify-content: space-between; padding: 0 42px; }
+.dock-side { width: 48px; display: flex; flex-direction: column; align-items: center; gap: 3px; position: relative; }
+.dock-side .thumb { width: 46px; height: 46px; border-radius: 12px; position: relative; border: 1px solid rgba(255,255,255,.18); overflow: hidden; }
+.dock-side .thumb .ph { position: absolute; inset: 0; }
+.dock-side .cnt { position: absolute; right: -4px; bottom: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--amber); color: #241703; font-family: var(--mono); font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.dock-side i { font-style: normal; font-size: 9px; color: rgba(255,255,255,.6); }
+.dock-side.ic { width: 46px; height: 46px; border-radius: 12px; background: rgba(255,255,255,.07); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: rgba(255,255,255,.75); }
+.shutter { width: 70px; height: 70px; border-radius: 50%; position: relative; }
+.shutter.ready::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--amber); }
+.shutter.ready i { position: absolute; inset: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 18px rgba(255,180,84,.5); }
+.shutter.busy { background: conic-gradient(var(--amber) 0 42%, rgba(255,255,255,.1) 42% 100%); }
+.shutter.busy i { position: absolute; inset: 5px; border-radius: 50%; background: #131316; display: flex; align-items: center; justify-content: center; font-style: normal; font-family: var(--mono); font-size: 12px; color: var(--amber); }
+.dock.dimmed { opacity: .45; }
+
+/* ---------- 底部面板（选源） ---------- */
+.dim { position: absolute; inset: 0; background: rgba(6,6,8,.55); z-index: 8; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; background: #1B1B20; border-radius: 22px 22px 0 0; padding: 10px 16px 26px; }
+.grab { width: 36px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.25); margin: 0 auto 12px; }
+.sh-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; }
+.sh-head .cur { width: 44px; height: 44px; border-radius: 10px; position: relative; overflow: hidden; border: 1.5px solid var(--amber); }
+.sh-head .cur .ph { position: absolute; inset: 0; }
+.sh-head h4 { margin: 0; font-family: var(--display); font-size: 15px; font-weight: 600; flex: 1; }
+.sh-head h4 span { display: block; font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.45); font-weight: 400; margin-top: 2px; }
+.sh-clear { height: 30px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 8px; border: 1px solid rgba(229,72,77,.5); color: #FF9296; font-size: 11px; }
+.src-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.src { border-radius: 13px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); padding: 13px 13px 11px; display: flex; flex-direction: column; gap: 6px; }
+.src b { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.src span { font-size: 10.5px; color: rgba(255,255,255,.45); }
+.src svg { color: var(--amber); }
+
+/* ---------- 模板库整屏 ---------- */
+.panel { position: absolute; inset: 0; background: #131316; z-index: 6; }
+.p-head { position: absolute; top: 46px; left: 14px; right: 14px; display: flex; align-items: center; justify-content: space-between; }
+.p-head h4 { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; }
+.p-head h4 span { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,.45); font-weight: 400; margin-left: 8px; }
+.p-close { width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.8); }
+.seg { position: absolute; top: 86px; left: 14px; right: 14px; display: flex; gap: 6px; }
+.seg span { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 999px; background: rgba(255,255,255,.06); font-size: 11px; color: rgba(255,255,255,.6); }
+.seg .on { background: var(--amber); color: #241703; font-weight: 600; }
+.tgrid { position: absolute; top: 124px; left: 14px; right: 14px; bottom: 84px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; overflow: hidden; }
+.tcell { border-radius: 10px; overflow: hidden; position: relative; border: 1px solid rgba(255,255,255,.1); }
+.tcell.pick { border: 1.5px solid var(--amber); box-shadow: 0 0 12px rgba(255,180,84,.3); }
+.tcell .ph { position: absolute; inset: 0; }
+.tcell .tag { position: absolute; top: 5px; left: 5px; height: 16px; padding: 0 6px; border-radius: 5px; background: rgba(10,10,12,.66); font-size: 8.5px; color: rgba(255,255,255,.85); display: flex; align-items: center; }
+.tbar { position: absolute; left: 12px; right: 12px; bottom: 22px; height: 50px; border-radius: 14px; background: rgba(20,20,24,.92); backdrop-filter: blur(4px); display: flex; align-items: center; gap: 6px; padding: 0 10px; z-index: 7; border: 1px solid rgba(255,255,255,.12); }
+.tbar b { font-size: 11px; color: rgba(255,255,255,.6); font-weight: 500; margin-right: 2px; }
+.tbar span { height: 30px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 8px; background: rgba(255,255,255,.08); font-size: 11px; color: rgba(255,255,255,.85); }
+.tbar span.hot { background: var(--amber); color: #241703; font-weight: 600; }
+.tbar .x { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.6); }
+
+/* ---------- 底片历史 ---------- */
+.hgroups { position: absolute; top: 124px; left: 14px; right: 14px; bottom: 20px; overflow: hidden; }
+.hg-label { font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,.4); margin: 10px 0 7px; }
+.hg-label:first-child { margin-top: 0; }
+.hrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 2px; }
+.hcell { border-radius: 10px; overflow: hidden; position: relative; height: 108px; border: 1px solid rgba(255,255,255,.1); }
+.hcell.cur { border: 1.5px solid var(--amber); }
+.hcell .ph { position: absolute; inset: 0; }
+.hcell .t { position: absolute; left: 6px; bottom: 6px; height: 17px; padding: 0 6px; border-radius: 5px; background: rgba(10,10,12,.66); font-family: var(--mono); font-size: 8.5px; color: rgba(255,255,255,.85); display: flex; align-items: center; }
+
+/* ---------- 设置：模型与接入 ---------- */
+.set-body { position: absolute; top: 124px; left: 14px; right: 14px; bottom: 20px; }
+.s-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: rgba(255,255,255,.4); margin: 0 0 7px; }
+.relay { border: 1px solid rgba(255,255,255,.12); border-radius: 13px; padding: 12px 13px; background: rgba(255,255,255,.04); margin-bottom: 18px; }
+.relay .r1 { display: flex; align-items: center; justify-content: space-between; }
+.relay b { font-size: 13.5px; font-weight: 600; }
+.pill-ok { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 999px; background: rgba(60,203,127,.14); color: #7FDFAC; font-size: 9.5px; }
+.pill-ok::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #3CCB7F; }
+.relay .r2 { font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.45); margin-top: 5px; word-break: break-all; }
+.relay .r3 { display: flex; gap: 7px; margin-top: 10px; }
+.relay .r3 span { height: 28px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 8px; background: rgba(255,255,255,.07); font-size: 11px; color: rgba(255,255,255,.8); }
+.relay .r3 span.hot { background: rgba(255,180,84,.16); color: #FFC97E; }
+.mrow { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 11px; border: 1px solid rgba(255,255,255,.1); margin-bottom: 7px; background: rgba(255,255,255,.03); }
+.mrow .radio { width: 16px; height: 16px; border-radius: 50%; border: 1.6px solid rgba(255,255,255,.35); flex: none; }
+.mrow.on { border-color: rgba(255,180,84,.55); background: rgba(255,180,84,.07); }
+.mrow.on .radio { border-color: var(--amber); background: radial-gradient(circle at center, var(--amber) 0 4px, transparent 5px); }
+.mrow .m b { display: block; font-size: 12.5px; font-weight: 600; }
+.mrow .m span { font-size: 10px; color: rgba(255,255,255,.45); }
+.defaults { display: flex; gap: 7px; margin-top: 4px; }
+.defaults span { height: 30px; padding: 0 11px; display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(255,255,255,.8); }
+.defaults .on { border-color: rgba(255,180,84,.55); color: #FFC97E; }
+.keynote { margin-top: 16px; font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.35); }
+
+/* 页脚决定项 */
+footer { margin-top: 56px; border-top: 1px solid var(--line-strong); padding-top: 24px; }
+footer h2 { font-family: var(--display); font-size: 19px; margin: 0 0 12px; }
+.decide { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 26px; margin: 0 0 18px; padding: 0; list-style: none; }
+.decide li { font-size: 13.5px; border-left: 2px solid var(--amber); padding-left: 12px; }
+.decide b { display: block; font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 2px; }
+footer p { max-width: 68ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="kicker">ZIRAN · 方案 A 定稿 · ANDROID</p>
+  <h1>快门台 · 完整流程稿</h1>
+  <p class="lede">相机隐喻贯穿到底：取景框是家，快门是唯一的主行动。下面 8 屏覆盖首启到接入的完整闭环，机内只此一套视觉——暖炭底、琥珀只给「可按下 / 进行中」。</p>
+  <div class="optim">
+    <h2>比概念稿补上的八件事</h2>
+    <ul>
+      <li><b>+01</b>历史提到快门左侧：上一次成片缩略常驻，顶部的历史圆标取消，入口少一个。</li>
+      <li><b>+02</b>新增配方条：当前叠加了哪几个槽一目了然（修「组合不可发现」）。</li>
+      <li><b>+03</b>槽位加图标；首启把第一步踩在「参考图」上，其余槽是叠加项。</li>
+      <li><b>+04</b>画幅角标点开后在取景框内实时换比例，所见即所得。</li>
+      <li><b>+05</b>补全生成中 / 出片两个状态：进度环、取消、闪光、操作条。</li>
+      <li><b>+06</b>顶部只留模型与设置，全部主操作沉到底部拇指区。</li>
+      <li><b>+07</b>防误拍：快门下标「生成」二字、成片左上常驻 AI 角标、首启一次性提示——相机感只留氛围，不给错认。</li>
+      <li><b>+08</b>模型配置落在手机本机：地址 + Key + 模型名手填（常见名作建议一键填）；桌面扫码导入放 v1.1。</li>
+    </ul>
+  </div>
+</header>
+
+<!-- ======== §1 主循环 ======== -->
+<section class="sec">
+  <h2>出图主循环</h2>
+  <p class="sub">空态 → 就绪 → 生成中 → 出片，快门贯穿始终</p>
+  <div class="flow">
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="top">
+        <span class="model-chip">豆包 seedream · 中转站 <i>▾</i></span>
+        <span class="gear"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></svg></span>
+      </div>
+      <div class="vf">
+        <div class="vf-empty">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="12" cy="12" r="3.4"/><path d="M8 5.5l1.2-2h5.6l1.2 2"/></svg>
+          <b>摆好参考，按下快门</b>
+          <span>快门按下即 AI 出片 · 姿势 / 服装 / 人脸<br>叠上去一起出片</span>
+        </div>
+      </div>
+      <span class="first-tip">按下快门 = AI 出片（约 6 秒）</span>
+      <div class="slots">
+        <span class="slot"><span class="lead">从这开始</span><span class="orb empty"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 15l4.5-4.5 4 4L16 11l4 4"/></svg></span><i>参考图</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 19c1-6 3-9 6-9s5 3 6 9"/><circle cx="12" cy="7" r="2.6"/><path d="M12 4.4V2.6"/></svg></span><i>姿势</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M8 4l4 3 4-3 3 4-3 3v8H8v-8L5 8z"/></svg></span><i>服装</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c1.2-3.8 3.6-5.6 6.5-5.6s5.3 1.8 6.5 5.6"/></svg></span><i>人脸</i></span>
+      </div>
+      <div class="combo"><b>配方</b><span>还没放参考 · 放满四槽也可以</span></div>
+      <div class="prompt empty"><span>描述（可不填，默认沿用参考）</span></div>
+      <div class="dock">
+        <span class="dock-side ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 14l4.5-4.5 4 4L16 10l4 4"/></svg>模板</span>
+        <span class="dock-mid"><span class="shutter ready"><i></i></span><i>生成</i></span>
+        <span class="dock-side"><span class="thumb" style="background:rgba(255,255,255,.05); border-style:dashed;"></span><i>底片</i></span>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 1</span><h3>首启 · 空态</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>取景框给一句怎么用；「从这开始」把第一脚踩在参考图上。</span></li>
+      <li><span class="n">b</span><span>快门、模板、底片三个位常亮常在，位置永不换。</span></li>
+      <li><span class="n">c</span><span>配方条此时提示「还没放参考」，不空转不报错。</span></li>
+      <li><span class="n">d</span><span>首启一次性提示「按下快门 = AI 出片」，点掉不再出现。</span></li>
+    </ul>
+  </div>
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="top">
+        <span class="model-chip">豆包 seedream · 中转站 <i>▾</i></span>
+        <span class="gear"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></svg></span>
+      </div>
+      <div class="vf">
+        <div class="img ph ph-warm"></div>
+        <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+        <span class="vf-ai"><b>AI</b> 生成</span>
+        <span class="vf-count">3 / 7</span>
+        <span class="vf-sw l"><svg width="9" height="14" viewBox="0 0 9 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 1L1.5 7 7 13"/></svg></span>
+        <span class="vf-sw r"><svg width="9" height="14" viewBox="0 0 9 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 1l5.5 6L2 13"/></svg></span>
+        <span class="vf-ratio">3:4</span>
+        <span class="vf-mark"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6.5 4h11v16l-5.5-4-5.5 4z"/></svg></span>
+      </div>
+      <div class="slots">
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-studio"></span></span><i>参考图</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-cool"></span></span><i>姿势</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-moss"></span></span><i>服装</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c1.2-3.8 3.6-5.6 6.5-5.6s5.3 1.8 6.5 5.6"/></svg></span><i>人脸</i></span>
+      </div>
+      <div class="combo"><b>配方</b><span>参考图 + 姿势 + 服装 · <b>1:1 也能拍</b></span></div>
+      <div class="prompt"><span>汉服、湖边、逆光</span><span class="caret"></span></div>
+      <div class="dock">
+        <span class="dock-side ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 14l4.5-4.5 4 4L16 10l4 4"/></svg>模板</span>
+        <span class="dock-mid"><span class="shutter ready"><i></i></span><i>生成</i></span>
+        <span class="dock-side"><span class="thumb"><span class="ph ph-dusk"></span><span class="cnt">7</span></span><i>底片</i></span>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 2</span><h3>就绪 · 三槽叠加</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>配方条直接报出当前组合，叠加关系不再靠猜。</span></li>
+      <li><span class="n">b</span><span>取景框左右滑翻底片（3/7）；角标书签随手存模板。</span></li>
+      <li><span class="n">c</span><span>轻点快门出一张，按住不放连拍最多 4 张（见待确认）。</span></li>
+      <li><span class="n">d</span><span>左上 AI 角标常驻：框里是成片回看，不是相机取景。</span></li>
+    </ul>
+  </div>
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="top">
+        <span class="model-chip">豆包 seedream · 中转站 <i>▾</i></span>
+        <span class="gear"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></svg></span>
+      </div>
+      <div class="vf">
+        <div class="vf-shimmer"></div>
+        <div class="gen-cue">
+          <span class="gen-ring"><i>42%</i></span>
+          <b>生成中</b>
+          <span>连拍 3 / 4 · 单张约 6 秒</span>
+        </div>
+        <span class="vf-cancel"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>取消</span>
+      </div>
+      <div class="slots">
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-studio"></span></span><i>参考图</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-cool"></span></span><i>姿势</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-moss"></span></span><i>服装</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c1.2-3.8 3.6-5.6 6.5-5.6s5.3 1.8 6.5 5.6"/></svg></span><i>人脸</i></span>
+      </div>
+      <div class="combo"><b>配方</b><span>参考图 + 姿势 + 服装 · 已锁定</span></div>
+      <div class="prompt"><span>汉服、湖边、逆光</span></div>
+      <div class="dock dimmed">
+        <span class="dock-side ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 14l4.5-4.5 4 4L16 10l4 4"/></svg>模板</span>
+        <span class="dock-mid"><span class="shutter busy"><i>42%</i></span><i>生成中</i></span>
+        <span class="dock-side"><span class="thumb"><span class="ph ph-dusk"></span><span class="cnt">7</span></span><i>底片</i></span>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 3</span><h3>生成中 · 可取消</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>快门变成进度环，取景框里同样有环 + 连拍进度，两处同源。</span></li>
+      <li><span class="n">b</span><span>生成中配方锁定：改槽 / 改描述都要先取消。</span></li>
+      <li><span class="n">c</span><span>取消即中断连拍，已出的片子保留进底片。</span></li>
+    </ul>
+  </div>
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="top">
+        <span class="model-chip">豆包 seedream · 中转站 <i>▾</i></span>
+        <span class="gear"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></svg></span>
+      </div>
+      <div class="vf">
+        <div class="img ph ph-warm"></div>
+        <div class="vf-flash"></div>
+        <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+        <span class="vf-ai"><b>AI</b> 生成</span>
+        <span class="vf-count">4 / 7 · 刚出片</span>
+        <span class="vf-acts">
+          <span class="vf-act hot"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg>存相册</span>
+          <span class="vf-act"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6.5 4h11v16l-5.5-4-5.5 4z"/></svg>存模板</span>
+          <span class="vf-act"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="12" r="2.4"/><circle cx="17" cy="6" r="2.4"/><circle cx="17" cy="18" r="2.4"/><path d="M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6"/></svg>分享</span>
+        </span>
+      </div>
+      <div class="slots">
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-studio"></span></span><i>参考图</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-cool"></span></span><i>姿势</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-moss"></span></span><i>服装</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c1.2-3.8 3.6-5.6 6.5-5.6s5.3 1.8 6.5 5.6"/></svg></span><i>人脸</i></span>
+      </div>
+      <div class="combo"><b>配方</b><span>连拍 4 张已进底片 · 本张为 4 号</span></div>
+      <div class="prompt"><span>汉服、湖边、逆光</span></div>
+      <div class="dock">
+        <span class="dock-side ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 14l4.5-4.5 4 4L16 10l4 4"/></svg>模板</span>
+        <span class="dock-mid"><span class="shutter ready"><i></i></span><i>生成</i></span>
+        <span class="dock-side"><span class="thumb"><span class="ph ph-warm"></span><span class="cnt">11</span></span><i>底片</i></span>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 4</span><h3>出片 · 闪光与操作条</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>出片一瞬取景框闪一圈琥珀光，操作条浮在框底 6 秒。</span></li>
+      <li><span class="n">b</span><span>连拍的 4 张按序进底片（7 → 11），框上计数跟着走。</span></li>
+      <li><span class="n">c</span><span>什么都不点也不丢：片子已在底片里，快门可立刻再来。</span></li>
+    </ul>
+  </div>
+
+  </div>
+</section>
+
+<!-- ======== §2 资产 ======== -->
+<section class="sec">
+  <h2>槽位与资产</h2>
+  <p class="sub">选源面板 · 模板库 · 底片历史</p>
+  <div class="flow">
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="top">
+        <span class="model-chip">豆包 seedream · 中转站 <i>▾</i></span>
+        <span class="gear"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></svg></span>
+      </div>
+      <div class="vf"><div class="img ph ph-warm"></div></div>
+      <div class="slots">
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-studio"></span></span><i>参考图</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-cool"></span></span><i>姿势</i></span>
+        <span class="slot filled"><span class="orb filled"><span class="ph ph-moss"></span></span><i>服装</i></span>
+        <span class="slot"><span class="orb empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c1.2-3.8 3.6-5.6 6.5-5.6s5.3 1.8 6.5 5.6"/></svg></span><i>人脸</i></span>
+      </div>
+      <div class="combo"><b>配方</b><span>参考图 + 姿势 + 服装</span></div>
+      <div class="prompt"><span>汉服、湖边、逆光</span></div>
+      <div class="dock dimmed">
+        <span class="dock-side ic">模板</span>
+        <span class="dock-mid"><span class="shutter ready"><i></i></span><i>生成</i></span>
+        <span class="dock-side"><span class="thumb"><span class="ph ph-dusk"></span><span class="cnt">7</span></span><i>底片</i></span>
+      </div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sh-head">
+          <span class="cur"><span class="ph ph-cool"></span></span>
+          <h4>姿势<span>已选 · 单膝跪 · 仰望 · 正面</span></h4>
+          <span class="sh-clear">清除</span>
+        </div>
+        <div class="src-grid">
+          <span class="src"><b><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="6" width="16" height="14" rx="3"/><path d="M8.5 6l1.4-2h4.2l1.4 2"/><circle cx="12" cy="13" r="3.2"/></svg>相册选图</b><span>从手机里挑一张</span></span>
+          <span class="src"><b><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="12" cy="12" r="3.4"/><path d="M8 5.5l1.2-2h5.6l1.2 2"/></svg>拍一张</b><span>对着镜子也行</span></span>
+          <span class="src"><b><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 14l4.5-4.5 4 4L16 10l4 4"/></svg>模板库</b><span>92 个姿势模板</span></span>
+          <span class="src"><b><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.8v4.4l3 1.8"/></svg>最近底片</b><span>拿生成过的图当参考</span></span>
+        </div>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 5</span><h3>槽位 · 选源面板</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>点任一槽弹出；头部是当前图 + 清除，换图不破坏其他槽。</span></li>
+      <li><span class="n">b</span><span>四个来源按常用度排：相册 / 拍摄 / 模板库 / 最近底片。</span></li>
+    </ul>
+  </div>
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="panel">
+        <div class="p-head">
+          <h4>模板库<span>92 个 · 全部</span></h4>
+          <span class="p-close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+        </div>
+        <div class="seg"><span>全部</span><span>参考图</span><span class="on">姿势</span><span>服装</span><span>人脸</span></div>
+        <div class="tgrid">
+          <span class="tcell"><span class="ph ph-cool"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-dusk"></span><span class="tag">姿势</span></span>
+          <span class="tcell pick"><span class="ph ph-studio"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-warm"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-moss"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-cool"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-studio"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-warm"></span><span class="tag">姿势</span></span>
+          <span class="tcell"><span class="ph ph-dusk"></span><span class="tag">姿势</span></span>
+        </div>
+        <div class="tbar">
+          <b>导入到</b>
+          <span>参考图</span>
+          <span class="hot">姿势</span>
+          <span>服装</span>
+          <span>人脸</span>
+          <span class="x"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+        </div>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 6</span><h3>模板库 · 按槽过滤</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>按槽位过滤，卡内不放文字（和桌面端偏好一致）。</span></li>
+      <li><span class="n">b</span><span>选中卡后底部浮条：导入到哪个槽一点即进。</span></li>
+      <li><span class="n">c</span><span>桌面端「存为模板」的图，这里直接可用。</span></li>
+    </ul>
+  </div>
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="panel">
+        <div class="p-head">
+          <h4>底片<span>7 张 · 本机留存</span></h4>
+          <span class="p-close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+        </div>
+        <div class="seg"><span class="on">全部</span><span>今天</span><span>本周</span></div>
+        <div class="hgroups">
+          <p class="hg-label">今天</p>
+          <div class="hrow">
+            <span class="hcell cur"><span class="ph ph-warm"></span><span class="t">21:07 · 豆包</span></span>
+            <span class="hcell"><span class="ph ph-dusk"></span><span class="t">20:44 · 豆包</span></span>
+          </div>
+          <p class="hg-label">昨天</p>
+          <div class="hrow">
+            <span class="hcell"><span class="ph ph-cool"></span><span class="t">22:10 · 豆包</span></span>
+            <span class="hcell"><span class="ph ph-moss"></span><span class="t">18:33 · 豆包</span></span>
+          </div>
+          <p class="hg-label">11 月 8 日</p>
+          <div class="hrow">
+            <span class="hcell"><span class="ph ph-studio"></span><span class="t">09:12 · 豆包</span></span>
+            <span class="hcell"><span class="ph ph-warm"></span><span class="t">08:47 · 豆包</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 7</span><h3>底片 · 历史</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>按天分组，点底片回到取景框（可再存模板 / 重出）。</span></li>
+      <li><span class="n">b</span><span>底片上限与桌面端一致（50 张，超出挤掉最旧）。</span></li>
+    </ul>
+  </div>
+
+  </div>
+</section>
+
+<!-- ======== §3 接入 ======== -->
+<section class="sec">
+  <h2>模型与接入</h2>
+  <p class="sub">顶部模型芯片与设置齿轮的唯一目的地</p>
+  <div class="flow">
+
+  <div class="shot">
+    <div class="phone"><div class="screen">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="panel">
+        <div class="p-head">
+          <h4>模型与接入</h4>
+          <span class="p-close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+        </div>
+        <div class="set-body">
+          <p class="s-label">中转站</p>
+          <div class="relay">
+            <div class="r1"><b>自定义中转站</b><span class="pill-ok">已连接</span></div>
+            <div class="r2">https://api.relay.example.com/v1</div>
+            <div class="r3"><span class="hot">测试连接</span><span>更换 Key</span><span>改地址</span></div>
+            <div class="r4">↳ 手机单独存一份配置，与桌面互不依赖；桌面扫码导入放 v1.1</div>
+          </div>
+          <p class="s-label">出图模型</p>
+          <div class="mrow on"><span class="radio"></span><span class="m"><b>doubao-seedream-4</b><span>当前模型 · 名字手填，中转站转发什么就用什么</span></span><span class="pen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1L19.5 7.5a2.1 2.1 0 0 0-3-3L5 16z"/></svg></span></div>
+          <div class="m-sug"><span class="on">doubao-seedream-4</span><span>gemini-3-flash-image</span><span>flux-1.1-pro</span><span>sd3.5-large</span></div>
+          <p class="s-label" style="margin-top:14px;">出图默认</p>
+          <div class="defaults"><span class="on">画幅 3:4</span><span>自动描述 开</span><span>软描述 沿用</span></div>
+          <p class="keynote">Key 与记录只存本机，不经第三方。</p>
+        </div>
+      </div>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="cap"><span class="idx">屏 8</span><h3>模型 · 中转站接入</h3></p>
+    <ul class="notes">
+      <li><span class="n">a</span><span>顶部模型芯片点开即是本屏；未接入时芯片显示「未接入 · 点此配置」。</span></li>
+      <li><span class="n">b</span><span>模型名手填 + 常见建议；软描述按中转站各存一份，与桌面同构。</span></li>
+      <li><span class="n">c</span><span>配置存手机本机，与桌面互不依赖；桌面扫码导入是 v1.1 加分项。</span></li>
+    </ul>
+  </div>
+
+  </div>
+</section>
+
+<footer>
+  <h2>进实现前，三个待确认</h2>
+  <ul class="decide">
+    <li><b>D-1 · 连拍上限</b>按住快门连拍同配方多方案。建议上限 4 张控成本，也可以不设限（计费透明展示）。</li>
+    <li><b>D-2 · 模板导入映射</b>本稿：一个模板进一个槽。备选：模板携带整套配方（多槽一键铺满 + 描述）。</li>
+    <li><b>D-3 · 工作区</b>安卓首版建议单空间；桌面端的工作区概念暂不迁移，等手机端站稳再说。</li>
+  </ul>
+  <p>这三个定了我就按本稿重写手机端（PhoneApp 整体替换），实现完直接替换本机 APK 验证。</p>
+</footer>
+
+</div>

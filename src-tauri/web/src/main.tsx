@@ -1,179 +1,53 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
-import poseCatalogJson from './data/poses.json'
-import costumeCatalogJson from './data/costumes.json'
-import faceCatalogJson from './data/faces.json'
-
-// 构建时由 vite 注入（值来自 tauri.conf.json 的 version）
-declare const __APP_VERSION__: string
-
-type ProviderUserConfig = { apiKey: string; model: string; baseUrl: string; soft?: boolean; adult?: boolean }
-type Theme = 'dark' | 'light'
-
-type Settings = {
-  provider: string
-  ratio: string
-  // 每个供应商一份独立配置：切模型各用各的 Key，模型/地址的自定义也互不覆盖
-  configs: Record<string, ProviderUserConfig>
-  // 界面主题：标题栏太阳/月亮按钮切换，随设置持久化
-  theme: Theme
-}
-const EMPTY_PCONF: ProviderUserConfig = { apiKey: '', model: '', baseUrl: '', soft: false, adult: false }
-
-// 本地生成历史的一条元数据（图片本体在应用数据目录 history/ 下）
-type HistoryItem = { id: number; created: number; provider: string; model: string; size: number }
-
-type RefKey = 'photo' | 'pose' | 'costume' | 'face'
-type Refs = Record<RefKey, string | null>
-type Tone = 'neutral' | 'busy' | 'ok' | 'err'
-
-type ProviderShape = 'ark' | 'siliconflow' | 'openai' | 'gptimage' | 'gemini' | 'minimax'
-
-type ProviderDef = {
-  value: string
-  label: string
-  sub: string
-  model: string
-  baseUrl: string
-  desc: string
-  keyUrl: string
-  keyHint: string
-  refs: boolean
-  shape: ProviderShape
-}
-
-const PROVIDER_SHAPES: ProviderShape[] = ['ark', 'siliconflow', 'openai', 'gptimage', 'gemini', 'minimax']
-
-// 内置默认供应商，同时是 providers.json 的种子内容：
-// 配置文件在应用数据目录（首次启动写入），用户可直接编辑增删改，
-// 界面里「编辑配置文件」可打开所在文件夹，「重新加载」即时生效。
-const DEFAULT_PROVIDERS: ProviderDef[] = [
-  {
-    value: 'ark',
-    label: 'Seedream',
-    sub: '火山引擎 · 方舟',
-    model: 'doubao-seedream-5-0-flash-260915',
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    desc: '国内直连最快，姿势/服装/人脸三张参考图都吃。Key 必须是「火山方舟」控制台签发的 API Key；IAM 子账号的访问密钥（AKLT 开头）是另一套体系，填进来会报 Key 格式错误。',
-    keyUrl: 'https://console.volcengine.com/ark',
-    keyHint: '火山引擎控制台 → 火山方舟 → 左侧「API Key 管理」→ 新建 API Key',
-    refs: true,
-    shape: 'ark'
-  },
-  {
-    value: 'siliconflow',
-    label: '硅基流动',
-    sub: 'Qwen-Image-Edit',
-    model: 'Qwen/Qwen-Image-Edit-2509',
-    baseUrl: 'https://api.siliconflow.cn/v1',
-    desc: '阿里通义千问图像编辑，最多三张参考图，改姿势改服装都行。',
-    keyUrl: 'https://cloud.siliconflow.cn/account/ak',
-    keyHint: '硅基流动 → 账户管理 → API 密钥',
-    refs: true,
-    shape: 'siliconflow'
-  },
-  {
-    value: 'zhipu',
-    label: '智谱 GLM-Image',
-    sub: 'bigmodel 国内站',
-    model: 'glm-image',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    desc: '国内直连 bigmodel.cn（无需代理），中文提示词理解好；只按文字画图，不支持参考图。',
-    keyUrl: 'https://bigmodel.cn/usercenter/apikeys',
-    keyHint: '智谱开放平台 bigmodel.cn → API Keys',
-    refs: false,
-    shape: 'openai'
-  },
-  {
-    value: 'openai',
-    label: 'OpenAI',
-    sub: 'gpt-image-1',
-    model: 'gpt-image-1',
-    baseUrl: 'https://api.openai.com/v1',
-    desc: '官方 images/edits 接口，最多 3 张参考图；尺寸只有方/竖/横三档，需能直连 openai.com。',
-    keyUrl: 'https://platform.openai.com/api-keys',
-    keyHint: 'OpenAI Platform → API keys',
-    refs: true,
-    shape: 'gptimage'
-  },
-  {
-    value: 'gemini',
-    label: 'Gemini',
-    sub: 'Nano Banana',
-    model: 'gemini-2.5-flash-image',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    desc: 'Google 图像模型，多参考图、人物一致性强；国内网络需代理。进阶可把模型改成 gemini-3-pro-image（更强更贵）。',
-    keyUrl: 'https://aistudio.google.com/apikey',
-    keyHint: 'Google AI Studio → Get API key（免费额度）',
-    refs: true,
-    shape: 'gemini'
-  },
-  {
-    value: 'minimax',
-    label: 'MiniMax',
-    sub: 'image-01',
-    model: 'image-01',
-    baseUrl: 'https://api.minimax.io/v1',
-    desc: '官方图像接口只认一张角色参考图（优先取人脸），姿势主要靠文字描述；H3 是视频模型，暂不适用。',
-    keyUrl: 'https://platform.minimax.io/console',
-    keyHint: 'MiniMax 开放平台 → 账户管理 → API Keys',
-    refs: true,
-    shape: 'minimax'
-  },
-  {
-    value: 'custom',
-    label: '自定义 / 中转站',
-    sub: 'OpenAI 兼容',
-    model: '',
-    baseUrl: '',
-    desc: '任何 OpenAI 兼容接口都能填：中转站、ComfyUI 网关、自建代理。接口地址填根地址即可，粘成完整端点会自动纠正。',
-    keyUrl: '',
-    keyHint: '填写服务商给你的 Base URL 与模型名',
-    refs: true,
-    shape: 'openai'
-  }
-]
-
-const RATIOS = [
-  { id: '1:1', label: '1:1', w: 1, h: 1, size: '1024x1024' },
-  { id: '3:4', label: '3:4', w: 3, h: 4, size: '864x1152' },
-  { id: '4:3', label: '4:3', w: 4, h: 3, size: '1152x864' },
-  { id: '9:16', label: '9:16', w: 9, h: 16, size: '720x1280' },
-  { id: '16:9', label: '16:9', w: 16, h: 9, size: '1280x720' }
-]
-
-const ratioMeta = (id: string) => RATIOS.find((r) => r.id === id) ?? RATIOS[0]
-
-// providers.json 内容 → 合法供应商列表：字段缺失给默认值，value 重复/非法的条目丢弃
-function sanitizeProviders(raw: unknown): ProviderDef[] {
-  if (!Array.isArray(raw)) return []
-  const seen = new Set<string>()
-  const out: ProviderDef[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const p = item as Partial<ProviderDef>
-    if (typeof p.value !== 'string' || !p.value.trim()) continue
-    if (typeof p.label !== 'string' || !p.label.trim()) continue
-    if (seen.has(p.value)) continue
-    seen.add(p.value)
-    out.push({
-      value: p.value,
-      label: p.label,
-      sub: typeof p.sub === 'string' ? p.sub : '',
-      model: typeof p.model === 'string' ? p.model : '',
-      baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl : '',
-      desc: typeof p.desc === 'string' ? p.desc : '',
-      keyUrl: typeof p.keyUrl === 'string' ? p.keyUrl : '',
-      keyHint: typeof p.keyHint === 'string' ? p.keyHint : '',
-      refs: p.refs === true,
-      shape: PROVIDER_SHAPES.includes(p.shape as ProviderShape) ? (p.shape as ProviderShape) : 'openai'
-    })
-  }
-  return out
-}
+import {
+  APP_VERSION,
+  assetUrl,
+  CATALOGS,
+  cachedSrc,
+  DEFAULT_PROVIDERS,
+  DEFAULT_SETTINGS,
+  EMPTY_PCONF,
+  EMPTY_REFS,
+  FULL_TO_THUMB,
+  GalleryImage,
+  historyTime,
+  Icon,
+  loadRefMeta,
+  loadSettings,
+  PreviewImg,
+  RATIOS,
+  ratioMeta,
+  REF_META,
+  SENSITIVE_CATEGORIES,
+  sanitizeConfigs,
+  sanitizeProviders,
+  HistoryThumb,
+  RefThumb,
+  STORAGE_KEY,
+  TemplateThumb,
+  useIsPhone,
+  openExternal,
+  readAsDataUrl
+} from './shared'
+import type {
+  GalleryCatalog,
+  GalleryItem,
+  GalleryView,
+  HistoryItem,
+  ProviderDef,
+  ProviderUserConfig,
+  RefKey,
+  RefMeta,
+  Refs,
+  Settings,
+  TemplateItem,
+  Tone
+} from './shared'
+import { PhoneApp } from './phone/PhoneApp'
+import './phone/phone.css'
 
 // 参考图 → 本地 SQLite 库中的 { mime, base64 }（首次取用自动下载入库）
 async function refDataUri(url: string): Promise<{ mime: string; data: string }> {
@@ -204,6 +78,7 @@ const providerPost = async (
     json?: string
     fields?: [string, string][]
     files?: { name: string; filename: string; mime: string; data: string }[]
+    cancelId?: string
   }
 ): Promise<HttpResult> => {
   if (IN_TAURI) {
@@ -213,7 +88,8 @@ const providerPost = async (
         headers,
         json_body: init.json ?? null,
         form_fields: init.fields ?? [],
-        form_files: init.files ?? []
+        form_files: init.files ?? [],
+        cancel_id: init.cancelId ?? null
       }
     })
   }
@@ -262,6 +138,10 @@ function autoPrompt(refs: Refs): string {
   } else if (refs.face) {
     seg.push('以参考人物的五官与发型为特征，生成一张自然真实的人物照片')
   }
+  if (refs.photo && refs.face) {
+    // 照片与人脸同时在场：照片定整体与体型，人脸参考补五官细节
+    seg.push('五官与发型细节参照人脸参考图校正')
+  }
   if (refs.costume) seg.push('服装与穿搭遵循参考服装图的整套样式与材质')
   seg.push('画面高清、光影自然')
   return seg.join('，')
@@ -284,9 +164,6 @@ function softenPrompt(text: string, adult: boolean): string {
     : `${cleaned}，用含蓄日常的说法描写衣着与姿态，画面得体、可公开展示`
 }
 
-// 服装图库里的敏感分类：跟随「允许成人向内容」开关隐藏（与 catalog 原文精确匹配）
-const SENSITIVE_CATEGORIES = ['内衣・睡衣', '性感穿搭', '泳装・度假']
-
 // 判定一次生成失败是否疑似「内容审核拦截」：方舟是
 // OutputImageSensitiveContentDetected / InputImageSensitiveContentDetected，
 // 其他常见写法一并覆盖；宁可多提示，也不要把审核问题当软件故障让用户白查
@@ -294,15 +171,6 @@ const CENSOR_RE =
   /SensitiveContentDetected|content_policy|ContentPolicy|content_moderation|内容审核|审核未通过|审核拦截|敏感内容|违规内容/i
 function isCensorError(msg: string): boolean {
   return CENSOR_RE.test(msg)
-}
-
-async function openExternal(url: string) {
-  try {
-    await invoke('open_url', { url })
-  } catch {
-    // plain-browser dev mode: Tauri command unavailable
-    window.open(url, '_blank')
-  }
 }
 
 // 事件日志：生成 / 连通性测试等关键事件追加到应用数据目录的 ziran.log，
@@ -322,301 +190,22 @@ async function logEvent(level: 'info' | 'warn' | 'error', scope: string, message
   }
 }
 
-const DEFAULT_SETTINGS: Settings = { provider: 'ark', ratio: '1:1', configs: {}, theme: 'dark' }
-
-const STORAGE_KEY = 'ziran.settings'
-const EMPTY_REFS: Refs = { photo: null, pose: null, costume: null, face: null }
-const REF_META: Record<RefKey, { name: string; hint: string }> = {
-  photo: { name: '人物照片', hint: '上传一张照片，配姿势即可生成（与人脸二选一）' },
-  pose: { name: '姿势', hint: '人体姿态参考' },
-  costume: { name: '服装', hint: '服饰材质参考' },
-  face: { name: '人脸', hint: '五官与发型参考' }
-}
 const ARTBOARD = 512
 
-type GalleryView = { id: string; angle: string; angleId: string; thumb: string; full: string }
-type GalleryItem = { id: string; systemId: string; system: string; code: string; category: string; name: string; views: GalleryView[] }
-type GalleryCatalog = {
-  origin: string
-  source: string
-  attribution: string
-  systems: { id: string; name: string; poseCount: number }[]
-  poses: GalleryItem[]
+// —— 工作区（多工程面板）——
+// 每个工作区一份独立的参考图/描述/画布状态；平时只把「当前工作区」投影到
+// 扁平 state 上，切换时暂存当前、恢复目标。图片是 data URI 不落 localStorage
+// （体积太大），工作区与会话同生命周期，重启回到单个空工作区。
+type ProjectState = {
+  refs: Refs
+  refMeta: Record<RefKey, RefMeta | null>
+  prompt: string
+  result: string
+  active: RefKey
+  viewingHistory: number | null
+  lastGen: { provider: string; model: string; prompt: string }
 }
-type RefMeta = { name: string; code: string; angle: string }
-
-const POSE_CATALOG = poseCatalogJson as GalleryCatalog
-const COSTUME_CATALOG = costumeCatalogJson as GalleryCatalog
-const FACE_CATALOG = faceCatalogJson as GalleryCatalog
-const CATALOGS: Partial<Record<RefKey, GalleryCatalog>> = {
-  pose: POSE_CATALOG,
-  costume: COSTUME_CATALOG,
-  face: FACE_CATALOG
-}
-
-const assetUrl = (origin: string, path: string) => {
-  if (!path) return ''
-  if (/^(data:|https?:|blob:)/.test(path)) return path
-  const base = (origin || '').replace(/\/$/, '')
-  return base ? `${base}/${path}` : path
-}
-
-// 全图 → 缩略图映射：图库源站在慢网下可能要好几秒才吐出一张全图，
-// 画板和小条先用缩略图秒显（浏览图库时已进内存/本地库），全图解析
-// 完成后再替换。refs 里存的仍是全图 URL，生成请求按 URL 现取，不受影响。
-const FULL_TO_THUMB = new Map<string, string>()
-for (const cat of Object.values(CATALOGS)) {
-  if (!cat?.origin) continue
-  for (const p of cat.poses) {
-    for (const v of p.views) {
-      if (v.full && v.thumb) FULL_TO_THUMB.set(assetUrl(cat.origin, v.full), assetUrl(cat.origin, v.thumb))
-    }
-  }
-}
-
-function loadRefMeta() {
-  const out: Record<RefKey, RefMeta | null> = { pose: null, costume: null, face: null }
-  try {
-    const legacy = JSON.parse(localStorage.getItem(`${STORAGE_KEY}.pose`) || 'null') as RefMeta | null
-    if (legacy) out.pose = legacy
-  } catch {}
-  try {
-    const all = JSON.parse(localStorage.getItem(`${STORAGE_KEY}.refmeta`) || 'null') as Partial<Record<RefKey, RefMeta>> | null
-    if (all) {
-      if (all.pose) out.pose = all.pose
-      if (all.costume) out.costume = all.costume
-      if (all.face) out.face = all.face
-    }
-  } catch {}
-  return out
-}
-
-// 配置项清洗：只留字符串字段，全空的条目丢弃
-function sanitizeConfigs(raw: unknown): Record<string, ProviderUserConfig> {
-  const out: Record<string, ProviderUserConfig> = {}
-  if (raw && typeof raw === 'object') {
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-      if (!v || typeof v !== 'object') continue
-      const c = v as Record<string, unknown>
-      const apiKey = typeof c.apiKey === 'string' ? c.apiKey : ''
-      const model = typeof c.model === 'string' ? c.model : ''
-      const baseUrl = typeof c.baseUrl === 'string' ? c.baseUrl : ''
-      if (apiKey || model || baseUrl || c.soft === true || c.adult === true)
-        out[k] = { apiKey, model, baseUrl, soft: c.soft === true, adult: c.adult === true }
-    }
-  }
-  return out
-}
-
-function loadSettings(): Settings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return DEFAULT_SETTINGS
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const pickRatio = (v: unknown) =>
-      typeof v === 'string' && RATIOS.some((r) => r.id === v) ? v : DEFAULT_SETTINGS.ratio
-    const pickTheme = (v: unknown): Theme => (v === 'light' ? 'light' : 'dark')
-    // 旧格式（全局单一 apiKey）迁移：挪进当时所用供应商名下，其余供应商不受影响
-    if (typeof parsed.apiKey === 'string' && !parsed.configs) {
-      const legacyProvider =
-        typeof parsed.provider === 'string' && DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
-          ? parsed.provider
-          : DEFAULT_SETTINGS.provider
-      return {
-        provider: legacyProvider,
-        ratio: pickRatio(parsed.ratio),
-        configs: sanitizeConfigs({
-          [legacyProvider]: { apiKey: parsed.apiKey, model: parsed.model, baseUrl: parsed.baseUrl }
-        }),
-        theme: pickTheme(parsed.theme),
-      }
-    }
-    const provider =
-      typeof parsed.provider === 'string' && DEFAULT_PROVIDERS.some((p) => p.value === parsed.provider)
-        ? parsed.provider
-        : DEFAULT_SETTINGS.provider
-    return { provider, ratio: pickRatio(parsed.ratio), configs: sanitizeConfigs(parsed.configs), theme: pickTheme(parsed.theme) }
-  } catch {
-    return DEFAULT_SETTINGS
-  }
-}
-
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
-
-type IconName =
-  | 'pointer'
-  | 'pose'
-  | 'shirt'
-  | 'face'
-  | 'grid'
-  | 'image'
-  | 'sparkle'
-  | 'plus'
-  | 'trash'
-  | 'undo'
-  | 'redo'
-  | 'zoomIn'
-  | 'zoomOut'
-  | 'fit'
-  | 'key'
-  | 'download'
-  | 'check'
-  | 'chevron'
-  | 'library'
-  | 'close'
-  | 'search'
-  | 'help'
-  | 'pen'
-  | 'camera'
-  | 'sun'
-  | 'moon'
-
-const ICON_PATHS: Record<IconName, ReactNode> = {
-  pointer: <path d="M6 3.5l9.4 8.5-4.2.6 2.4 4.9-1.9.9-2.4-4.9L6 15.9z" />,
-  pose: (
-    <>
-      <circle cx="12" cy="5.6" r="2.3" />
-      <path d="M12 8.4v5.2M12 10.2L8.6 12.6M12 10.2l3.4 2.4M12 13.6l-2.8 5.6M12 13.6l2.8 5.6" />
-    </>
-  ),
-  shirt: <path d="M8.2 4.1L4 6.8l1.7 3.6 2.5-1.1V20h7.6V9.3l2.5 1.1L20 6.8l-4.2-2.7-1.9 1.4h-3.8z" />,
-  face: (
-    <>
-      <circle cx="12" cy="12" r="7.4" />
-      <path d="M9.2 10.4v.9M14.8 10.4v.9M9.4 14.4c1.4 1.3 3.8 1.3 5.2 0" />
-    </>
-  ),
-  grid: (
-    <>
-      <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
-      <path d="M9.2 3.5v17M14.8 3.5v17M3.5 9.2h17M3.5 14.8h17" />
-    </>
-  ),
-  image: (
-    <>
-      <rect x="3.5" y="4.5" width="17" height="15" rx="1.8" />
-      <circle cx="8.6" cy="9.4" r="1.4" />
-      <path d="M4.2 17.4l4.9-4.6 3.3 3 2.6-2.3 4.6 4.2" />
-    </>
-  ),
-  sparkle: (
-    <>
-      <path d="M11 3.4l1.7 4.6 4.6 1.7-4.6 1.7L11 16.1 9.3 11.4 4.7 9.7l4.6-1.7z" />
-      <path d="M17.6 15.2l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" />
-    </>
-  ),
-  plus: <path d="M12 5.5v13M5.5 12h13" />,
-  trash: <path d="M4.5 7h15M9.5 7V4.8h5V7M6.6 7l.9 12.5h9l.9-12.5M10.4 10.6v5.6M13.6 10.6v5.6" />,
-  undo: <path d="M8.6 7.4L4.4 11.6l4.2 4.2M4.6 11.6h8.3a5.1 5.1 0 010 10.2H11" />,
-  redo: <path d="M15.4 7.4l4.2 4.2-4.2 4.2M19.4 11.6H11a5.1 5.1 0 000 10.2h1.9" />,
-  zoomIn: (
-    <>
-      <circle cx="10.8" cy="10.8" r="5.6" />
-      <path d="M14.9 14.9L19.6 19.6M10.8 8.3v5M8.3 10.8h5" />
-    </>
-  ),
-  zoomOut: (
-    <>
-      <circle cx="10.8" cy="10.8" r="5.6" />
-      <path d="M14.9 14.9L19.6 19.6M8.3 10.8h5" />
-    </>
-  ),
-  fit: <path d="M4.5 9.4V4.5h4.9M19.5 9.4V4.5h-4.9M4.5 14.6v4.9h4.9M19.5 14.6v4.9h-4.9" />,
-  sun: (
-    <>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M5.9 5.9l1.4 1.4M16.7 16.7l1.4 1.4M18.1 5.9l-1.4 1.4M7.3 16.7l-1.4 1.4" />
-    </>
-  ),
-  moon: <path d="M20 13.2A8.2 8.2 0 1110.8 4a6.5 6.5 0 009.2 9.2z" />,
-  settings: (
-    <>
-      <path d="M4.5 7.5h15M4.5 16.5h15" />
-      <circle cx="9.5" cy="7.5" r="2.2" />
-      <circle cx="14.5" cy="16.5" r="2.2" />
-    </>
-  ),
-  key: (
-    <>
-      <circle cx="8.2" cy="12" r="3.7" />
-      <path d="M11.9 12h7.6M16.4 12v3M19.5 12v2.2" />
-    </>
-  ),
-  download: <path d="M12 4.2v10.4M8.2 11l3.8 3.8L15.8 11M5 19.4h14" />,
-  check: <path d="M5 12.6l4.4 4.4L19 7.4" />,
-  chevron: <path d="M9 5.5l6.5 6.5L9 18.5" />,
-  library: (
-    <>
-      <rect x="3.5" y="4" width="7" height="16" rx="1.2" />
-      <rect x="13.5" y="4" width="7" height="9" rx="1.2" />
-      <path d="M13.5 16.5h7" />
-    </>
-  ),
-  close: <path d="M6 6l12 12M18 6L6 18" />,
-  search: (
-    <>
-      <circle cx="11" cy="11" r="6.2" />
-      <path d="M15.6 15.6L20 20" />
-    </>
-  ),
-  help: (
-    <>
-      <circle cx="12" cy="12" r="8.2" />
-      <path d="M9.6 9.4a2.5 2.5 0 114.1 1.9c-.9.7-1.7 1.1-1.7 2.3M12 16.6v.2" />
-    </>
-  ),
-  pen: <path d="M5 15.8l9.9-9.9a1.9 1.9 0 012.7 0l.5.5a1.9 1.9 0 010 2.7l-9.9 9.9-3.9 1zM14.4 6.4l3.2 3.2" />,
-  camera: (
-    <>
-      <path d="M4 9.1A2.1 2.1 0 016.1 7h1.4l1.2-1.9h6.6l1.2 1.9h1.4A2.1 2.1 0 0120 9.1v7.6a2.1 2.1 0 01-2.1 2.1H6.1A2.1 2.1 0 014 16.7z" />
-      <circle cx="12" cy="12.6" r="3.2" />
-    </>
-  )
-}
-
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {ICON_PATHS[name]}
-    </svg>
-  )
-}
-
-// 手机端检测：WebView 宽屏桌面窗口仍走桌面布局；窄窗口或触控粗指针
-// （安卓手机平板）走手机专属界面。JSX 分支在 App 内按该值切换。
-const PHONE_MQ = '(max-width: 640px), ((pointer: coarse) and (max-width: 900px))'
-
-function useIsPhone() {
-  const [isPhone, setIsPhone] = useState(() => window.matchMedia(PHONE_MQ).matches)
-  useEffect(() => {
-    const mq = window.matchMedia(PHONE_MQ)
-    const onChange = () => setIsPhone(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return isPhone
-}
-
-// 手机端的三个底部标签与「模板库」当前展开的库，状态放 App 顶层、
-// 两个分支共用，来回切换不丢已选参考与搜索词
-type PhoneTab = 'board' | 'library' | 'settings'
+type Project = { id: number; name: string; state: ProjectState | null }
 
 function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings)
@@ -631,10 +220,35 @@ function App() {
   // 正在看的条目 id；null 表示看的是最新出图（新生成时重置）。
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [viewingHistory, setViewingHistory] = useState<number | null>(null)
+  // 历史面板删除确认：第一击进入武装态，2.6 秒内再点同一张才真删
+  const [armDelId, setArmDelId] = useState<number | null>(null)
+  const armDelT = useRef(0)
+  useEffect(() => () => window.clearTimeout(armDelT.current), [])
+  // 生成模板：用户显式收藏的成图，可基于它再次生成
+  const [templates, setTemplates] = useState<TemplateItem[]>([])
   const [status, setStatus] = useState<{ text: string; tone: Tone }>({ text: '就绪', tone: 'neutral' })
   const [busy, setBusy] = useState(false)
   const [refMeta, setRefMeta] = useState<Record<RefKey, RefMeta | null>>(loadRefMeta)
   const [galleryOpen, setGalleryOpen] = useState<RefKey | null>(null)
+  // 模板库浮层（桌面）：与图库并列的收藏入口
+  const [templateOpen, setTemplateOpen] = useState(false)
+  // 历史面板（桌面）：rail 图标点开的浮层，收纳全部成图
+  const [histPanelOpen, setHistPanelOpen] = useState(false)
+  // —— 工作区 ——
+  // activeProjectRef 同步维护（不等 effect），生成结果按发起时的工作区投递
+  const [projects, setProjects] = useState<Project[]>([{ id: 1, name: '工作区 1', state: null }])
+  const [activeProject, setActiveProject] = useState(1)
+  const activeProjectRef = useRef(1)
+  const projectIdRef = useRef(2)
+  // 历史面板：Esc 关闭（effect 必须在声明之后，依赖数组渲染期就要读值）
+  useEffect(() => {
+    if (!histPanelOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHistPanelOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [histPanelOpen])
   const [preview, setPreview] = useState<{ src: string; title: string } | null>(null)
   const [srcDims, setSrcDims] = useState<{ w: number; h: number } | null>(null)
 
@@ -654,11 +268,6 @@ function App() {
   const areaRef = useRef<HTMLDivElement | null>(null)
 
   const isPhone = useIsPhone()
-  const [phoneTab, setPhoneTab] = useState<PhoneTab>('board')
-  const [phoneDescOpen, setPhoneDescOpen] = useState(false)
-  // 照片槽的隐藏 file input；toast 在新状态提示出现时复位显示
-  const phonePhotoInputRef = useRef<HTMLInputElement | null>(null)
-  const [phoneToastHidden, setPhoneToastHidden] = useState(false)
 
   useEffect(() => {
     try {
@@ -679,19 +288,14 @@ function App() {
     document.documentElement.dataset.app = isPhone ? 'phone' : 'desktop'
   }, [isPhone])
 
-  // 新状态提示出现时 toast 重新亮相，4 秒后自动收起（也可点 × 立即收起）
-  useEffect(() => {
-    setPhoneToastHidden(false)
-    if (!status.text) return
-    const t = setTimeout(() => setPhoneToastHidden(true), 4000)
-    return () => clearTimeout(t)
-  }, [status])
-
   // 启动时把本地生成历史拉进来自动填充切换条（后端不在则静默跳过；
   // 兜底 Array.isArray：桩/异常路径返回 null 时不能把列表打成 null）
   useEffect(() => {
     invoke<HistoryItem[]>('history_list')
       .then((rows) => setHistory(Array.isArray(rows) ? rows : []))
+      .catch(() => {})
+    invoke<TemplateItem[]>('template_list')
+      .then((rows) => setTemplates(Array.isArray(rows) ? rows : []))
       .catch(() => {})
   }, [])
 
@@ -841,18 +445,9 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [panelOpen])
   const setRef = (key: RefKey, value: string | null) => {
-    setRefs((prev) => {
-      const next = { ...prev, [key]: value }
-      // 人物照片与人脸同为「人物身份」来源，二者互斥，后选的生效
-      if (key === 'photo' && value && prev.face) {
-        next.face = null
-        setStatus({ text: '已改用人物照片作为人物依据，原人脸参考已移除', tone: 'ok' })
-      } else if (key === 'face' && value && prev.photo) {
-        next.photo = null
-        setStatus({ text: '已改用人脸参考作为人物依据，原人物照片已移除', tone: 'ok' })
-      }
-      return next
-    })
+    // 四类参考（照片/人脸/姿势/服装）可自由叠加，互不清除：
+    // 上传照片、模板载入、图库选择都走这里，后选的只占自己的槽位
+    setRefs((prev) => ({ ...prev, [key]: value }))
     setActive(key)
   }
   const bumpZoom = (delta: number) => {
@@ -866,7 +461,105 @@ function App() {
       return
     }
     setRef(key, await readAsDataUrl(file))
-    setStatus({ text: `已载入${REF_META[key].name}参考 · ${file.name}`, tone: 'ok' })
+    setStatus({ text: `已载入${REF_META[key].name} · ${file.name}`, tone: 'ok' })
+  }
+
+  // —— 工作区切换：暂存当前面板 → 恢复目标面板 ——
+
+  const freshProjectState = (): ProjectState => ({
+    refs: { ...EMPTY_REFS },
+    refMeta: loadRefMeta(),
+    prompt: '',
+    result: '',
+    active: 'pose',
+    viewingHistory: null,
+    lastGen: { provider: '', model: '', prompt: '' }
+  })
+
+  // 把一份工作区状态铺回扁平 state（画板/参考/描述都是当前面板的投影）
+  const applyProjectState = (st: ProjectState) => {
+    setRefs(st.refs)
+    setRefMeta(st.refMeta)
+    setPrompt(st.prompt)
+    setResult(st.result)
+    setActive(st.active)
+    setViewingHistory(st.viewingHistory)
+    lastGenRef.current = { ...st.lastGen }
+    setSrcDims(null)
+    setAutoFit(true)
+  }
+
+  const switchProject = (id: number) => {
+    if (id === activeProjectRef.current) return
+    const target = projects.find((p) => p.id === id)
+    if (!target) return
+    const from = activeProjectRef.current
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === from
+          ? {
+              ...p,
+              state: { refs, refMeta, prompt, result, active, viewingHistory, lastGen: { ...lastGenRef.current } }
+            }
+          : p
+      )
+    )
+    applyProjectState(target.state ?? freshProjectState())
+    setActiveProject(id)
+    activeProjectRef.current = id
+  }
+
+  const createProject = () => {
+    const from = activeProjectRef.current
+    const id = projectIdRef.current++
+    // 不能先 setProjects 再 switchProject：后者闭包里的 projects 还没有新 tab，
+    // 会找不到 target 而静默返回。这里一次性完成「存现状 + 追加新 tab + 切过去」。
+    setProjects((prev) => [
+      ...prev.map((p) =>
+        p.id === from
+          ? {
+              ...p,
+              state: { refs, refMeta, prompt, result, active, viewingHistory, lastGen: { ...lastGenRef.current } }
+            }
+          : p
+      ),
+      { id, name: `工作区 ${id}`, state: null }
+    ])
+    applyProjectState(freshProjectState())
+    setActiveProject(id)
+    activeProjectRef.current = id
+  }
+
+  const closeProject = (id: number) => {
+    const rest = projects.filter((p) => p.id !== id)
+    if (!rest.length) {
+      // 最后一个也关：换成全新空工作区
+      const freshId = projectIdRef.current++
+      setProjects([{ id: freshId, name: `工作区 ${freshId}`, state: null }])
+      applyProjectState(freshProjectState())
+      setActiveProject(freshId)
+      activeProjectRef.current = freshId
+      return
+    }
+    setProjects(rest)
+    if (id === activeProjectRef.current) {
+      const next = rest[0]
+      applyProjectState(next.state ?? freshProjectState())
+      setActiveProject(next.id)
+      activeProjectRef.current = next.id
+    }
+  }
+
+  // 出图结果按「发起生成时的工作区」投递：中途切到别的工作区，成图也能
+  // 落回正确的画板（目标在后台时写进它的暂存状态）
+  const deliverResult = (pid: number, output: string) => {
+    if (pid === activeProjectRef.current) {
+      setResult(output)
+      return
+    }
+    setProjects((prev) =>
+      prev.map((p) => (p.id === pid && p.state ? { ...p, state: { ...p.state, result: output } } : p))
+    )
   }
 
   // 连通性测试：对某个供应商发一次最小真实生成请求。
@@ -968,6 +661,22 @@ function App() {
     }
   }
 
+  // 当前可取消请求的句柄 id：手机端快门旁的「取消」按它打断生成中的请求
+  const cancelIdRef = useRef<string | null>(null)
+  const cancelGenerate = () => {
+    const id = cancelIdRef.current
+    if (!id) return
+    void invoke('provider_fetch_cancel', { id }).catch(() => {})
+  }
+
+  // 手机端「最近底片 → 设为槽位」：整图 data URI 进槽（与模板载入同款逻辑）
+  const setSlotImage = (key: RefKey, uri: string) => {
+    setRef(key, uri)
+    setResult('')
+    setMissing(null)
+    setStatus({ text: `已载入${REF_META[key].name} · 可再生成`, tone: 'ok' })
+  }
+
   const generate = async () => {
     const meta = providerMeta(settings.provider)
     const ratio = ratioMeta(settings.ratio)
@@ -980,7 +689,7 @@ function App() {
       return
     }
     if (meta.refs && !refs.pose && !refs.photo) {
-      setStatus({ text: '请先选一个姿势，或上传一张人物照片', tone: 'err' })
+      setStatus({ text: '请先选一个姿势，或上传一张参考图', tone: 'err' })
       void logEvent('warn', 'generate', `provider=${settings.provider} aborted: no reference`)
       return
     }
@@ -991,11 +700,11 @@ function App() {
     }
 
     const refList = [refs.photo, refs.pose, refs.costume, refs.face].filter(Boolean) as string[]
-    // 委婉描述按服务商开关：接入不设限的服务商时关掉，保提示词原样；
+    // 委婉描述按服务商开关，默认打开；显式关掉（接入不设限的服务商）才保提示词原样；
     // 「允许成人向内容」打开时不附加「画面得体」的约束句
     const conf = effConfig()
     const rawPrompt = prompt.trim() || autoPrompt(refs)
-    const promptText = conf.soft ? softenPrompt(rawPrompt, !!conf.adult) : rawPrompt
+    const promptText = conf.soft !== false ? softenPrompt(rawPrompt, !!conf.adult) : rawPrompt
     const base = effBaseUrl().replace(/\/$/, '')
     if (!base) {
       openPanel()
@@ -1010,18 +719,26 @@ function App() {
       return
     }
     const key = effKey().trim()
+    // 记下发起生成的工作区：期间用户可能切走，结果要送回正确的面板
+    const genProject = activeProjectRef.current
+
+    // 手机端可取消：本轮所有请求挂同一个取消句柄，取消时按它中断在途请求
+    const cancelId = `g${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    cancelIdRef.current = cancelId
 
     setBusy(true)
     setCensor(false)
-    // 新一轮生成开始：切条高亮回到「最新」，出图完成即归档为新历史
+    // 新一轮生成开始：切条高亮回到「最新」，出图完成即归档为新历史；
+    // 同时锁存本次生成的元数据，画板「存为模板」用（即使归档失败也有值）
     setViewingHistory(null)
+    lastGenRef.current = { provider: settings.provider, model, prompt: rawPrompt }
     setStatus({ text: `正在生成图像 · ${meta.label}`, tone: 'busy' })
     const startedAt = Date.now()
     const genLog = (level: 'info' | 'error', rest: string) =>
       void logEvent(
         level,
         'generate',
-        `provider=${settings.provider} model=${model} keyLen=${key.length} base=${base} ratio=${ratio.id} soft=${!!conf.soft} adult=${!!conf.adult} refs=${refList.length} ${rest}`
+        `provider=${settings.provider} model=${model} keyLen=${key.length} base=${base} ratio=${ratio.id} soft=${conf.soft !== false} adult=${!!conf.adult} refs=${refList.length} ${rest}`
       )
     try {
       let output = ''
@@ -1039,7 +756,8 @@ function App() {
             json: JSON.stringify({
               contents: [{ parts }],
               generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: ratio.id } }
-            })
+            }),
+            cancelId
           }
         )
         if (status >= 400) throw new Error(`生成失败 ${status} · ${humanizeError(text.slice(0, 180))}`)
@@ -1060,7 +778,8 @@ function App() {
               prompt: promptText,
               aspect_ratio: ratio.id,
               ...(subject ? { subject_reference: [{ type: 'character', image_file: subject }] } : {})
-            })
+            }),
+            cancelId
           }
         )
         if (status >= 400) throw new Error(`生成失败 ${status} · ${humanizeError(text.slice(0, 180))}`)
@@ -1083,13 +802,13 @@ function App() {
           out = await providerPost(
             `${base}/images/edits`,
             { Authorization: `Bearer ${key}` },
-            { fields: [['model', model], ['prompt', promptText], ['size', gptSize]], files }
+            { fields: [['model', model], ['prompt', promptText], ['size', gptSize]], files, cancelId }
           )
         } else {
           out = await providerPost(
             `${base}/images/generations`,
             { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-            { json: JSON.stringify({ model, prompt: promptText, size: gptSize }) }
+            { json: JSON.stringify({ model, prompt: promptText, size: gptSize }), cancelId }
           )
         }
         if (out.status >= 400) throw new Error(`生成失败 ${out.status} · ${humanizeError(out.text.slice(0, 180))}`)
@@ -1122,7 +841,7 @@ function App() {
         const { status, text } = await providerPost(
           `${base}/images/generations`,
           { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-          { json: JSON.stringify(body) }
+          { json: JSON.stringify(body), cancelId }
         )
         if (status >= 400) throw new Error(`生成失败 ${status} · ${humanizeError(text.slice(0, 180))}`)
         const data = JSON.parse(text)
@@ -1133,18 +852,25 @@ function App() {
       }
 
       if (output.startsWith('http') || output.startsWith('data:')) {
-        setResult(output)
+        deliverResult(genProject, output)
         setCensor(false)
         setStatus({ text: '生成完成', tone: 'ok' })
         genLog('info', `status=ok durMs=${Date.now() - startedAt}`)
-        // 归档进本地历史（fire-and-forget：归档失败不影响出图本身）
-        void archiveHistory(output)
+        // 归档进本地历史（fire-and-forget：归档失败不影响出图本身）；
+        // 同步记下这次生成用的描述/模型，画板「存为模板」时取用
+        void archiveHistory(output, rawPrompt, genProject)
       } else {
         setStatus({ text: '响应里没有图像数据', tone: 'err' })
         genLog('error', `status=no-image durMs=${Date.now() - startedAt}`)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : `请求失败 · ${String(err)}`
+      // 用户点了取消：不是错误，安静收场（已出的片子早已各自归档）
+      if (msg === '__cancelled__') {
+        setStatus({ text: '已取消', tone: 'neutral' })
+        genLog('info', `status=cancelled durMs=${Date.now() - startedAt}`)
+        return
+      }
       const censored = isCensorError(msg)
       setCensor(censored)
       const statusMatch = /^生成失败 (\d+)/.exec(msg)
@@ -1154,6 +880,7 @@ function App() {
       )
       setStatus({ text: `${msg}（已记入日志）`, tone: 'err' })
     } finally {
+      if (cancelIdRef.current === cancelId) cancelIdRef.current = null
       setBusy(false)
     }
   }
@@ -1208,9 +935,13 @@ function App() {
   }
 
   // —— 生成历史 ——
+  // 最近一次成功生成的元数据（描述随生成时点锁存，不是此刻输入框内容）：
+  // 画板「存为模板」时与大模型/供应商一起入库，之后载入模板可原样回填
+  const lastGenRef = useRef({ provider: '', model: '', prompt: '' })
+
   // 出图成功后归档（远端 URL 先转本地 data URI），失败静默：
   // 出图已经成功，历史只是锦上添花，不该反过来打扰用户。
-  const archiveHistory = async (output: string) => {
+  const archiveHistory = async (output: string, prompt: string, pid: number) => {
     try {
       let dataUrl = output
       if (!dataUrl.startsWith('data:image/')) {
@@ -1219,21 +950,18 @@ function App() {
       const entry = await invoke<HistoryItem>('history_add', {
         dataUrl,
         provider: settings.provider,
-        model: effModel()
+        model: effModel(),
+        prompt,
+        ws: pid
       })
       // 桩/异常路径可能返回 null：没有合法 id 就不进列表
       if (entry && typeof entry.id === 'number') {
-        setHistory((prev) => [entry, ...prev].slice(0, 50))
+        // 旧桩不认 ws 参数：前端补上，保证按工作区过滤正确
+        setHistory((prev) => [{ ...entry, ws: pid }, ...prev].slice(0, 50))
       }
     } catch {
       // ignore — 归档失败不打扰出图流程
     }
-  }
-
-  const historyTime = (created: number) => {
-    const t = new Date(created * 1000)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${t.getMonth() + 1}/${t.getDate()} ${pad(t.getHours())}:${pad(t.getMinutes())}`
   }
 
   // 点历史缩略图 → 取原图上画板。此后 ⌘S 保存/预览作用的都是这张历史图；
@@ -1249,17 +977,113 @@ function App() {
     }
   }
 
+  // 删除一条历史（作品 Tab 用）：文件由后端清理，列表就地移除
+  const deleteHistory = async (id: number) => {
+    try {
+      await invoke('history_delete', { id })
+      setHistory((prev) => prev.filter((h) => h.id !== id))
+      if (viewingHistory === id) setViewingHistory(null)
+    } catch {
+      setStatus({ text: '删除失败', tone: 'err' })
+    }
+  }
+
+  // —— 生成模板 ——
+  // 出图后「存为模板」，后续可基于这张图再生成：载入时会作为参考图回到
+  // 参考槽位，生成时用的描述（如有）一并回填到描述框。
+  // src 除了成图也可能是历史原图 data URI；仍是远程 URL 时先借下载缓存
+  // 通道转成本地 data URI（画板上直接看到的成图多为 data URI，零开销）。
+  const saveTemplate = async (src: string, meta: { provider: string; model: string; prompt: string }) => {
+    if (!src) return
+    try {
+      let dataUrl = src
+      if (!dataUrl.startsWith('data:image/')) {
+        dataUrl = await invoke<string>('image_data_uri', { url: dataUrl, kind: 'result' })
+      }
+      const entry = await invoke<TemplateItem>('template_add', {
+        dataUrl,
+        provider: meta.provider,
+        model: meta.model,
+        prompt: meta.prompt
+      })
+      if (entry && typeof entry.id === 'number') {
+        setTemplates((prev) => [entry, ...prev])
+        setStatus({ text: '已存为模板 · 模板库里可基于它再出图', tone: 'ok' })
+        void logEvent('info', 'template', `add id=${entry.id} provider=${entry.provider} model=${entry.model} size=${entry.size}`)
+      }
+    } catch (e) {
+      setStatus({ text: `存为模板失败：${e instanceof Error ? e.message : String(e)}`, tone: 'err' })
+      void logEvent('warn', 'template', `add failed: ${String(e)}`)
+    }
+  }
+
+  // 历史图存为模板：先取该条原图（data URI），元数据直接用历史条里存的
+  const saveTemplateFromHistory = async (item: HistoryItem) => {
+    try {
+      const uri = await invoke<string>('history_image', { id: item.id })
+      await saveTemplate(uri, { provider: item.provider, model: item.model, prompt: item.prompt ?? '' })
+    } catch {
+      setStatus({ text: '存为模板失败：读取历史成图失败', tone: 'err' })
+    }
+  }
+
+  // 画板「存为模板」：看的是最新出图就用生成时锁存的元数据；
+  // 看的是历史图就用该历史条的元数据。
+  const saveBoardTemplate = () => {
+    if (!result) return
+    const h = viewingHistory !== null ? history.find((x) => x.id === viewingHistory) : undefined
+    const meta = h
+      ? { provider: h.provider, model: h.model, prompt: h.prompt ?? '' }
+      : lastGenRef.current
+    void saveTemplate(result, {
+      provider: meta.provider || settings.provider,
+      model: meta.model || effModel(),
+      prompt: meta.prompt
+    })
+  }
+
+  // 载入模板：整图 data URI 装进参考槽位（模板是本机文件，比远程图库多
+  // 一步后端读取）；模板带描述时回填描述框，方便「同一配方换个说法」
+  const loadTemplateIntoSlot = async (tpl: TemplateItem, slot: RefKey) => {
+    try {
+      const uri = await invoke<string>('template_image', { id: tpl.id })
+      setRef(slot, uri)
+      if (tpl.prompt.trim()) setPrompt(tpl.prompt)
+      setResult('')
+      setMissing(null)
+      setTemplateOpen(false)
+      setStatus({
+        text: `已把模板载入${REF_META[slot].name}${tpl.prompt.trim() ? '，描述已回填' : ''} · 可在此基础上再生成`,
+        tone: 'ok'
+      })
+      void logEvent('info', 'template', `load id=${tpl.id} slot=${slot}`)
+    } catch (e) {
+      setStatus({ text: `载入模板失败：${e instanceof Error ? e.message : String(e)}`, tone: 'err' })
+    }
+  }
+
+  const deleteTemplate = async (id: number) => {
+    try {
+      await invoke('template_delete', { id })
+      setTemplates((prev) => prev.filter((t) => t.id !== id))
+    } catch {
+      setStatus({ text: '删除模板失败', tone: 'err' })
+    }
+  }
+
   // 保存成图：系统保存对话框 + Rust 落盘。webview 对 <a download> 的支持
   // 不可靠（WKWebView 常把它当页面导航），落盘这件事交给后端才稳。
   // 远端 URL 先借 Rust 的下载缓存通道转成 data: URI（前端 fetch 会撞 CORS）；
   // 纯浏览器开发预览没有对话框，退回老的 <a download> 路径。
-  const saveResult = async () => {
-    if (!result) return
+  // 手机端作品查看器保存历史图时传入 src；桌面画板保存当前成图省略。
+  const saveResult = async (src?: string) => {
+    const target = src ?? result
+    if (!target) return
     const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
-    let dataUrl = result
+    let dataUrl = target
     if (!dataUrl.startsWith('data:image/')) {
       try {
-        dataUrl = await invoke<string>('image_data_uri', { url: result, kind: 'result' })
+        dataUrl = await invoke<string>('image_data_uri', { url: target, kind: 'result' })
       } catch {
         // 转不出来就只能走浏览器兜底
       }
@@ -1326,7 +1150,7 @@ function App() {
     if (!step2Done) {
       setMissing('pose')
       if (activeProvider.refs) {
-        setStatus({ text: '第二步：选一个姿势，或上传一张人物照片', tone: 'err' })
+        setStatus({ text: '第二步：选一个姿势，或上传一张参考图', tone: 'err' })
         setGalleryOpen('pose')
       } else {
         setStatus({ text: `第二步：${activeProvider.label} 只按文字画图，先写一段描述`, tone: 'err' })
@@ -1335,7 +1159,8 @@ function App() {
       return
     }
     setMissing(null)
-    void generate()
+    // 返回 promise：手机端连拍要按张顺序 await（取消/校验失败时为 undefined）
+    return generate()
   }
 
   const primaryLabel = busy
@@ -1400,7 +1225,7 @@ function App() {
     : activeRef
       ? active === 'pose' && refMeta.pose
         ? `姿势 · ${refMeta.pose.code} ${refMeta.pose.name}`
-        : `${REF_META[active].name}参考`
+        : `${REF_META[active].name}`
       : '空画板'
 
   /* ---------- 手机端：与桌面共用的画板积木 ---------- */
@@ -1432,14 +1257,24 @@ function App() {
         {/* 保存按钮直接浮在成图图层上：平时隐形，悬停画板才现身；
             反向缩放抵消画板的 transform，按钮大小不随 zoom 变 */}
         {result && (
-          <button
-            className="artboard-download"
-            title="保存成图（⌘S）"
-            onClick={saveResult}
-            style={{ transform: `scale(${Number((1 / zoom).toFixed(3))})` }}
-          >
-            <Icon name="download" size={15} />
-          </button>
+          <>
+            <button
+              className="artboard-tpl"
+              title="存为模板，之后可基于这张图再生成"
+              onClick={saveBoardTemplate}
+              style={{ transform: `scale(${Number((1 / zoom).toFixed(3))})` }}
+            >
+              <Icon name="bookmark" size={15} />
+            </button>
+            <button
+              className="artboard-download"
+              title="保存成图（⌘S）"
+              onClick={() => saveResult()}
+              style={{ transform: `scale(${Number((1 / zoom).toFixed(3))})` }}
+            >
+              <Icon name="download" size={15} />
+            </button>
+          </>
         )}
         {/* 缩放工具条：浮在图片图层底部内侧（半透明胶囊）。transform 同时做
             居中定位与反向缩放（抵消画板 scale，钳制 0.9–1.25 倍，文字大小始终接近原大） */}
@@ -1465,12 +1300,17 @@ function App() {
     </div>
   )
 
-  // 生成历史切换条：多于一张才显示（一张没有切换的意义）。
+  // 生成历史切换条：画板下方的快速切换胶片，只放最近几张（完整列表在
+  // 左侧历史面板）。多于一张才显示（一张没有切换的意义）。
   // viewingHistory 为 null（刚生成完）时高亮最新一张。
+  const HISTORY_STRIP_KEEP = 8
+  // 画板下的「最近出图」条按工作区隔离：只显示当前工作区生成的图（老记录默认工作区 1，
+  // 新开的工作区为空）。rail 上的历史浮层面板仍是全局共用，所有工作区都能看到全部。
+  const wsHistory = history.filter((h) => (h.ws ?? 1) === activeProject)
   const renderHistoryStrip = () => (
     <div className="history-strip" aria-label="生成历史">
-      {history.map((h) => {
-        const isCurrent = viewingHistory === h.id || (viewingHistory === null && h.id === history[0].id)
+      {wsHistory.slice(0, HISTORY_STRIP_KEEP).map((h) => {
+        const isCurrent = viewingHistory === h.id || (viewingHistory === null && h.id === wsHistory[0].id)
         return (
           <button
             key={h.id}
@@ -1479,9 +1319,133 @@ function App() {
             onClick={() => void viewHistory(h)}
           >
             <HistoryThumb id={h.id} />
+            {/* 悬停书签：把这条历史直接存成模板（元数据取自该条） */}
+            <span
+              className="history-tpl"
+              role="button"
+              aria-label="存为模板"
+              title="存为模板"
+              onClick={(e) => {
+                e.stopPropagation()
+                void saveTemplateFromHistory(h)
+              }}
+            >
+              <Icon name="bookmark" size={11} />
+            </span>
           </button>
         )
       })}
+    </div>
+  )
+
+  // 历史浮层面板：rail 图标点开，浮在画板左侧。点击图片回画板细看（面板
+  // 随之收起）；悬停出书签（存为模板）与删除（两击确认）。点外部 / Esc 关闭。
+  const armPanelDelete = (id: number) => {
+    setArmDelId(id)
+    window.clearTimeout(armDelT.current)
+    armDelT.current = window.setTimeout(() => setArmDelId(null), 2600)
+  }
+  const renderHistoryFlyout = () => (
+    <>
+      <div className="history-flyout-backdrop" onClick={() => setHistPanelOpen(false)} />
+      <aside className="history-flyout" aria-label="生成历史">
+        <header className="history-flyout-head">
+          <span>历史</span>
+          {history.length > 0 && <span className="history-panel-count">{history.length}</span>}
+          <button
+            className="history-flyout-close"
+            onClick={() => setHistPanelOpen(false)}
+            aria-label="关闭历史面板"
+            title="关闭"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </header>
+        <div className="history-flyout-body">
+          {history.map((h) => {
+            const isCurrent = viewingHistory === h.id || (viewingHistory === null && h.id === history[0].id)
+            const armed = armDelId === h.id
+            return (
+              <div key={h.id} className={`history-item${isCurrent ? ' is-current' : ''}`}>
+                <button
+                  className="history-item-view"
+                  title={`${historyTime(h.created)} · ${h.provider} ${h.model}${isCurrent ? ' · 当前' : ''}`}
+                  onClick={() => {
+                    void viewHistory(h)
+                    setHistPanelOpen(false)
+                  }}
+                >
+                  <HistoryThumb id={h.id} />
+                </button>
+                <span className="history-item-tools">
+                  <span
+                    className="history-tpl"
+                    role="button"
+                    aria-label="存为模板"
+                    title="存为模板"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void saveTemplateFromHistory(h)
+                    }}
+                  >
+                    <Icon name="bookmark" size={11} />
+                  </span>
+                  <span
+                    className={`history-del${armed ? ' is-arm' : ''}`}
+                    role="button"
+                    aria-label={armed ? '再点一次确认删除' : '删除'}
+                    title={armed ? '再点一次确认删除' : '删除'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (armed) {
+                        window.clearTimeout(armDelT.current)
+                        setArmDelId(null)
+                        void deleteHistory(h.id)
+                      } else {
+                        armPanelDelete(h.id)
+                      }
+                    }}
+                  >
+                    <Icon name="trash" size={10} />
+                  </span>
+                </span>
+              </div>
+            )
+          })}
+          {!history.length && <p className="history-panel-empty">生成过的图会自动收进这里</p>}
+        </div>
+      </aside>
+    </>
+  )
+
+  // 工作区标签条：每个工程一个独立面板（参考图/描述/画布互不串），
+  // 悬停标签出 ×；「+」新建。仅桌面（手机端保持单面板）。
+  const renderProjectTabs = () => (
+    <div className="ws-tabs" aria-label="工作区">
+      {projects.map((p) => (
+        <div key={p.id} className={`ws-tab${p.id === activeProject ? ' is-active' : ''}`}>
+          <button className="ws-tab-name" title={p.name} onClick={() => switchProject(p.id)}>
+            {p.name}
+          </button>
+          {projects.length > 1 && (
+            <span
+              className="ws-tab-x"
+              role="button"
+              aria-label={`关闭 ${p.name}`}
+              title="关闭此工作区"
+              onClick={(e) => {
+                e.stopPropagation()
+                closeProject(p.id)
+              }}
+            >
+              <Icon name="close" size={9} />
+            </span>
+          )}
+        </div>
+      ))}
+      <button className="ws-tab-add" onClick={createProject} aria-label="新建工作区" title="新建工作区 · 独立的参考图与画板">
+        <Icon name="plus" size={12} />
+      </button>
     </div>
   )
 
@@ -1495,266 +1459,53 @@ function App() {
     </div>
   )
 
-  /* ---------- 手机端：三标签底部导航的专属界面 ---------- */
-  // 参考速选槽：点空槽 = 直接进图库（照片槽直接开相册），点已载入 = 预览大图，
-  // 角上的 × = 移除。入口全部来自画板一屏，不用进一层。
-
-  const renderPhoneBoard = () => (
-    <div className="phone-board">
-      <div className="phone-slotrow">
-        {(Object.keys(REF_META) as RefKey[]).map((k) => {
-          const has = Boolean(refs[k])
-          const isCatalog = Boolean(CATALOGS[k])
-          return (
-            <div key={k} className={`phone-slot ${has ? 'is-loaded' : ''} ${active === k ? 'is-active' : ''}`}>
-              <button
-                className="phone-slot-thumb"
-                onClick={() => {
-                  setActive(k)
-                  if (refs[k]) {
-                    setPreview({ src: refs[k] as string, title: REF_META[k].name })
-                  } else if (isCatalog) {
-                    setGalleryOpen(k)
-                  } else {
-                    phonePhotoInputRef.current?.click()
-                  }
-                }}
-                aria-label={has ? `查看 ${REF_META[k].name}` : `选择${REF_META[k].name}`}
-              >
-                {has ? <RefThumb url={refs[k]} kind={k} /> : <Icon name={isCatalog ? 'plus' : 'camera'} size={20} />}
-              </button>
-              <span className="phone-slot-label">
-                {refMeta[k] && has ? refMeta[k]!.code : REF_META[k].name}
-              </span>
-              <button
-                className="phone-slot-x"
-                style={{ visibility: has ? 'visible' : 'hidden' }}
-                disabled={!has}
-                onClick={() => setRefs((prev) => ({ ...prev, [k]: null }))}
-                aria-label={`移除${REF_META[k].name}`}
-              >
-                <Icon name="close" size={10} />
-              </button>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="phone-ratios">
-        {RATIOS.map((r) => (
-          <button
-            key={r.id}
-            className={`chip ${settings.ratio === r.id ? 'is-active' : ''}`}
-            onClick={() => update({ ratio: r.id })}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
-
-      <section
-        className="canvas-area phone-canvas"
-        ref={areaRef}
-      >
-        {renderArtboard()}
-        {history.length > 1 && renderHistoryStrip()}
-        {busy && renderGenVeil()}
-        {!canvasSource && (
-          <div className="canvas-hint phone-hint">
-            <p className="hint-title">三步开始出图</p>
-            <ol className="hint-steps">
-              <li className={hasKey ? 'is-done' : ''}>
-                <span className="hint-num">{hasKey ? <Icon name="check" size={10} /> : 1}</span>
-                配置模型{hasKey ? <em>已完成</em> : <em>必填</em>}
-              </li>
-              <li className={step2Done ? 'is-done' : ''}>
-                <span className="hint-num">{step2Done ? <Icon name="check" size={10} /> : 2}</span>
-                {activeProvider.refs ? '选姿势 / 传照片' : '写一段描述'}
-                {step2Done ? <em>{activeProvider.refs ? '已选' : '已写'}</em> : <em>必填</em>}
-              </li>
-              <li className={ready ? '' : 'is-muted'}>
-                <span className="hint-num">3</span>
-                点“生成图像”
-              </li>
-            </ol>
-            <button
-              className="ghost-btn"
-              onClick={() => (hasKey ? setGalleryOpen('pose') : openPanel())}
-            >
-              <Icon name={hasKey ? 'library' : 'settings'} size={14} />
-              {hasKey ? '打开姿势图库' : '去配置模型'}
-            </button>
-          </div>
-        )}
-      </section>
-
-      <div className="phone-generate">
-        {phoneDescOpen && (
-          <textarea
-            className="input phone-desc"
-            rows={3}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={
-              activeProvider.refs
-                ? '不填也行，默认沿用参考图里的人物、服装和姿势'
-                : `描述要画什么，例如：一位穿冲锋衣的年轻女性站在雪山下`
-            }
-          />
-        )}
-        <div className="phone-generow">
-          <button
-            className={`ghost-btn phone-desc-toggle ${phoneDescOpen ? 'is-open' : ''}`}
-            onClick={() => setPhoneDescOpen((v) => !v)}
-            aria-expanded={phoneDescOpen}
-          >
-            <Icon name="pen" size={14} />
-            {activeProvider.refs ? '描述' : '描述 · 必填'}
-            <Icon name="chevron" size={12} />
-          </button>
-          <button className="primary phone-gen" onClick={runPrimary} disabled={busy}>
-            <Icon name={busy ? 'check' : 'sparkle'} size={16} />
-            {primaryLabel}
-          </button>
-        </div>
-        <input
-          type="file"
-          accept="image/*"
-          hidden
-          ref={phonePhotoInputRef}
-          onChange={async (e) => {
-            await pickFile(e.target.files?.[0], 'photo')
-            e.target.value = ''
-          }}
-        />
-      </div>
-    </div>
-  )
-
-  // 模板库标签：三个图库的大卡入口，点卡片即铺开全屏 sheet 图库
-  const renderPhoneLibrary = () => (
-    <div className="phone-library">
-      {(['pose', 'costume', 'face'] as RefKey[]).map((k) => (
-        <button key={k} className="phone-lib-card" onClick={() => setGalleryOpen(k)}>
-          <span className="phone-lib-icon">
-            <Icon name={k === 'pose' ? k : k === 'costume' ? 'shirt' : 'face'} size={22} />
-          </span>
-          <span className="phone-lib-text">
-            <span className="phone-lib-title">
-              {REF_META[k].name}图库
-              {refMeta[k] && (
-                <span className="phone-lib-loaded">已用 {refMeta[k]!.code}</span>
-              )}
-            </span>
-            <span className="phone-lib-sub">{REF_META[k].hint}</span>
-          </span>
-          <Icon name="chevron" size={16} />
-        </button>
-      ))}
-      <p className="phone-lib-note">
-        图库浏览已自动转存刚浏览过的缩略图到本机，离线重开也是秒开。
-      </p>
-    </div>
-  )
-
-  // 设置标签：模型、说明、外观三行入口，模型配置展开为全屏 sheet
-  const renderPhoneSettings = () => (
-    <div className="phone-settings">
-      <button className="phone-row" onClick={() => openPanel()}>
-        <Icon name="key" size={17} />
-        <span className="phone-row-text">
-          <span className="phone-row-title">模型与 API Key</span>
-          <span className="phone-row-sub">
-            {activeProvider.label} · {effModel()}
-          </span>
-        </span>
-        <Icon name="chevron" size={15} />
-      </button>
-      <button className="phone-row" onClick={() => setShowGuide(true)}>
-        <Icon name="help" size={17} />
-        <span className="phone-row-text">
-          <span className="phone-row-title">使用说明</span>
-          <span className="phone-row-sub">三步就能出图</span>
-        </span>
-        <Icon name="chevron" size={15} />
-      </button>
-      <div className="phone-row is-static">
-        <Icon name={settings.theme === 'light' ? 'sun' : 'moon'} size={17} />
-        <span className="phone-row-text">
-          <span className="phone-row-title">外观</span>
-          <span className="phone-row-sub">{settings.theme === 'light' ? '亮色主题' : '暗色主题'}</span>
-        </span>
-        <button
-          className="icon-btn phone-theme-btn"
-          onClick={() => update({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
-        >
-          <Icon name={settings.theme === 'light' ? 'moon' : 'sun'} size={17} />
-        </button>
-      </div>
-      <p className="phone-about">
-        Ziran 桌面版 v{__APP_VERSION__} · API Key 只存本机
-      </p>
-    </div>
-  )
-
-  const renderPhoneChrome = () => (
-    <>
-      <header className="phone-topbar">
-        <div className="phone-brand">
-          <svg className="brand-mark" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 2.6l9.4 9.4-9.4 9.4L2.6 12z" fill="none" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M12 7.4l4.6 4.6-4.6 4.6L7.4 12z" fill="currentColor" />
-          </svg>
-          <span className="brand-name">Ziran</span>
-        </div>
-        <span className={`phone-api ${hasKey ? 'is-ok' : 'is-warn'}`} onClick={() => setPhoneTab('settings')}>
-          <Icon name="key" size={13} />
-          {hasKey ? 'API 就绪' : '配置 Key'}
-        </span>
-        <button
-          className="icon-btn"
-          title={settings.theme === 'light' ? '切换到暗色' : '切换到亮色'}
-          onClick={() => update({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
-        >
-          <Icon name={settings.theme === 'light' ? 'moon' : 'sun'} size={17} />
-        </button>
-      </header>
-
-      <div className="phone-main">
-        {phoneTab === 'board' && renderPhoneBoard()}
-        {phoneTab === 'library' && renderPhoneLibrary()}
-        {phoneTab === 'settings' && renderPhoneSettings()}
-      </div>
-
-      <nav className="phone-tabbar" aria-label="主导航">
-        {([['board', '画板', 'image'], ['library', '模板库', 'library'], ['settings', '设置', 'settings']] as [PhoneTab, string, IconName][]).map(
-          ([tab, label, icon]) => (
-            <button
-              key={tab}
-              className={`phone-tab ${phoneTab === tab ? 'is-active' : ''}`}
-              onClick={() => setPhoneTab(tab)}
-            >
-              <span className="phone-tab-icon">
-                <Icon name={icon} size={20} />
-              </span>
-              <span className="phone-tab-label">{label}</span>
-            </button>
-          )
-        )}
-      </nav>
-
-      {status.text && status.text !== '就绪' && !phoneToastHidden && (
-        <button className={`phone-toast tone-${status.tone}`} onClick={() => setPhoneToastHidden(true)}>
-          {status.text}
-        </button>
-      )}
-    </>
-  )
+  // 手机端整棵 UI 树（创作/作品/设置 + 底部导航 + 浮层）。
+  // 状态归属在本组件，PhoneApp 只负责呈现与手机侧交互。
+  // 依赖的 canvasSource/canvasLabel 等已在前文就绪，放在 return 之前组装。
+  const phoneEl = isPhone ? (
+    <PhoneApp
+      settings={settings}
+      update={update}
+      providers={providers}
+      activeProvider={activeProvider}
+      effModel={effModel}
+      hasKey={hasKey}
+      refs={refs}
+      refMeta={refMeta}
+      setActive={setActive}
+      clearSlot={(k) => setRefs((prev) => ({ ...prev, [k]: null }))}
+      pickFile={pickFile}
+      prompt={prompt}
+      setPrompt={setPrompt}
+      busy={busy}
+      runPrimary={runPrimary}
+      cancelGenerate={cancelGenerate}
+      setSlotImage={setSlotImage}
+      status={status}
+      history={history}
+      deleteHistory={deleteHistory}
+      saveImage={saveResult}
+      templates={templates}
+      saveTemplateFromHistory={saveTemplateFromHistory}
+      saveCanvasTemplate={saveBoardTemplate}
+      loadTemplateIntoSlot={loadTemplateIntoSlot}
+      canvasSource={canvasSource}
+      canvasBusy={boardBusy}
+      canvasLabel={canvasLabel}
+      hasResult={Boolean(result)}
+      galleryOpen={galleryOpen}
+      setGalleryOpen={setGalleryOpen}
+      preview={preview}
+      setPreview={setPreview}
+      openPanel={openPanel}
+      setShowGuide={setShowGuide}
+    />
+  ) : null
 
   return (
     <div className="shell">
       {/* 手机端专属界面：坐标在 CSS 的手机段里（桌面三区按 isPhone 不再挂载） */}
-      {isPhone && renderPhoneChrome()}
+      {phoneEl}
 
       {!isPhone && (
       <header className="titlebar">
@@ -1766,9 +1517,7 @@ function App() {
           <span className="brand-name">Ziran</span>
         </div>
         <span className="divider" />
-        <span className="doc-name">
-          无标题.pose<span className="doc-dirty">·</span>
-        </span>
+        {renderProjectTabs()}
 
         <div className="titlebar-spacer" />
 
@@ -1822,6 +1571,18 @@ function App() {
             <button className="rail-btn" data-tip="姿势图库" onClick={() => setGalleryOpen('pose')}>
               <Icon name="library" />
             </button>
+            <button className="rail-btn" data-tip="模板库 · 基于已有成图再生成" onClick={() => setTemplateOpen(true)}>
+              <Icon name="bookmark" />
+              {templates.length > 0 && <span className="rail-badge" />}
+            </button>
+            <button
+              className={`rail-btn ${histPanelOpen ? 'is-active' : ''}`}
+              data-tip="历史 · 全部成图"
+              onClick={() => setHistPanelOpen((v) => !v)}
+            >
+              <Icon name="history" />
+              {history.length > 0 && <span className="rail-count">{history.length > 99 ? '99+' : history.length}</span>}
+            </button>
             <button
               className={`rail-btn ${grid ? 'is-active' : ''}`}
               data-tip="网格叠加"
@@ -1838,6 +1599,9 @@ function App() {
             </button>
           </div>
         </nav>
+
+        {/* 历史浮层面板：rail「历史」图标点开（画板下胶片条只留最近几张） */}
+        {histPanelOpen && renderHistoryFlyout()}
 
         <section
           className={`canvas-area ${dragging ? 'is-dragging' : ''} ${stripRefs.length > 0 ? 'has-strip' : ''}`}
@@ -1873,9 +1637,9 @@ function App() {
 
           {renderArtboard()}
 
-          {/* 生成历史切换条：多于一张才显示（一张没有切换的意义）。
+          {/* 生成历史切换条：本工作区多于一张才显示（一张没有切换的意义）。
               viewingHistory 为 null（刚生成完）时高亮最新一张。 */}
-          {history.length > 1 && renderHistoryStrip()}
+          {wsHistory.length > 1 && renderHistoryStrip()}
 
           {busy && renderGenVeil()}
 
@@ -1982,7 +1746,7 @@ function App() {
             <div className="section-head">
               <span>② 参考图</span>
               <span className="section-count">
-                {activeProvider.refs ? '照片与人脸二选一 · 姿势、服装可叠加' : '当前服务商不支持参考图'}
+                {activeProvider.refs ? '照片、人脸、姿势、服装可自由叠加' : '当前服务商不支持参考图'}
               </span>
             </div>
             {(Object.keys(REF_META) as RefKey[]).map((key) => (
@@ -2101,7 +1865,7 @@ function App() {
       </div>
       )}
 
-      {galleryOpen && (
+      {galleryOpen && CATALOGS[galleryOpen] && (
         <RefGallery
           key={galleryOpen}
           kind={galleryOpen}
@@ -2111,7 +1875,7 @@ function App() {
           onClose={() => setGalleryOpen(null)}
           onApply={(item, view) => {
             const kind = galleryOpen
-            const url = assetUrl(CATALOGS[kind].origin, view.full)
+            const url = assetUrl(CATALOGS[kind]!.origin, view.full)
             setRef(kind, url)
             // 预热整图进本地库：之后断网也能用这张参考生成
             invoke('image_data_uri', { url, kind }).catch(() => {})
@@ -2120,8 +1884,16 @@ function App() {
             setMissing(null)
             setGalleryOpen(null)
             setStatus({ text: `已载入${REF_META[kind].name} ${item.code} ${item.name}${view.angle && view.angle !== '参考' ? ` · ${view.angle}` : ''}`, tone: 'ok' })
-            if (isPhone) setPhoneTab('board')
           }}
+        />
+      )}
+
+      {!isPhone && templateOpen && (
+        <TemplateGallery
+          items={templates}
+          onClose={() => setTemplateOpen(false)}
+          onLoad={(tpl, slot) => void loadTemplateIntoSlot(tpl, slot)}
+          onDelete={(t) => void deleteTemplate(t.id)}
         />
       )}
 
@@ -2161,7 +1933,7 @@ function App() {
                 <span className="guide-num">2</span>
                 <div>
                   <b>选姿势或传照片</b>
-                  <p>从姿势图库挑一张线稿，或直接上传一张人物照片——两者给一个就能出图；服装和人脸可选，加了更像。</p>
+                  <p>从姿势图库挑一张线稿，或直接上传一张参考图——两者给一个就能出图；服装和人脸可选，加了更像。</p>
                 </div>
               </li>
               <li>
@@ -2271,7 +2043,7 @@ function App() {
                     <label title="生成时自动把提示词改写得含蓄些，并剥掉「不要人/不要皮肤」这类易触发审核的短语；提示词不再原样发出">
                       <input
                         type="checkbox"
-                        checked={!!effConfig(panelMeta.value).soft}
+                        checked={effConfig(panelMeta.value).soft !== false}
                         onChange={(e) => updateProviderConfig(panelMeta.value, { soft: e.target.checked })}
                       />
                       <span>委婉描述（避开内容审核）</span>
@@ -2285,8 +2057,8 @@ function App() {
                       <span>允许成人向内容（解除得体约束）</span>
                     </label>
                     <p className="help">
-                      只对上面选中的「{panelMeta.label}」生效，各模型互不影响。生成被审核拦下时，开「委婉描述」多数能过；
-                      接入不限制内容的服务商时可以都关掉，提示词保持原样。
+                      只对上面选中的「{panelMeta.label}」生效，各模型互不影响，默认打开。生成被审核拦下时保持打开多数能过；
+                      接入不限制内容的服务商时可以关掉，提示词保持原样。
                     </p>
                   </div>
                 </div>
@@ -2383,10 +2155,125 @@ function App() {
           <span className="status-sep" />
           <span className="mono">{hasKey ? '密钥已设置' : '密钥未设置'}</span>
           <span className="status-sep" />
-          <span className="mono">v{__APP_VERSION__}</span>
+          <span className="mono">v{APP_VERSION}</span>
         </div>
       </footer>
       )}
+    </div>
+  )
+}
+
+/* 模板库浮层（桌面）：用户收藏的成图，选中后作为参考图载入画板，
+   有描述的模板连提示词一起回填——「同一配方换个说法」直接再生成。
+   不分页/不搜索（模板是用户亲手存的，量级远小于内置图库）。 */
+function TemplateGallery({
+  items,
+  onClose,
+  onLoad,
+  onDelete
+}: {
+  items: TemplateItem[]
+  onClose: () => void
+  onLoad: (t: TemplateItem, slot: RefKey) => void
+  onDelete: (t: TemplateItem) => void
+}) {
+  const [picked, setPicked] = useState<TemplateItem | null>(null)
+  const [slot, setSlot] = useState<RefKey>('photo')
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // 被选中的模板如果被删除，选择态就失效了
+  useEffect(() => {
+    if (picked && !items.some((t) => t.id === picked.id)) {
+      setPicked(null)
+    }
+  }, [items, picked])
+
+  const slots = Object.keys(REF_META) as RefKey[]
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="gallery tpl" onClick={(e) => e.stopPropagation()}>
+        <header className="gallery-head">
+          <div className="gallery-title">
+            <Icon name="bookmark" size={18} />
+            <h2>模板库</h2>
+            <span className="gallery-count">{items.length} 个 · 存了模板就能基于它再出图</span>
+          </div>
+          <button className="icon-btn" onClick={onClose} title="关闭">
+            <Icon name="close" size={18} />
+          </button>
+        </header>
+
+        <div className="gallery-body is-single">
+          <div className="gallery-main">
+            <div className="pose-grid tpl-grid">
+              {items.map((t) => {
+                const isPicked = picked?.id === t.id
+                return (
+                  <button
+                    key={t.id}
+                    className={`tpl-card ${isPicked ? 'is-picked' : ''}`}
+                    onClick={() => setPicked(t)}
+                    onDoubleClick={() => onLoad(t, slot)}
+                    title="单击选中 · 双击载入画板"
+                  >
+                    <span className="tpl-thumb">
+                      <TemplateThumb id={t.id} />
+                    </span>
+                    <span className="tpl-meta">
+                      <span className="tpl-time">{historyTime(t.created)} · {t.provider || '—'}</span>
+                      {t.prompt && <span className="tpl-prompt">{t.prompt}</span>}
+                    </span>
+                  </button>
+                )
+              })}
+              {!items.length && (
+                <p className="gallery-empty">还没有模板 · 出图后画板右上角点「存为模板」即可入库</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <footer className="gallery-foot">
+          <div className="foot-info tpl-info">
+            {picked ? (
+              <span className="foot-name" title={picked.prompt || picked.model}>
+                {picked.prompt ? picked.prompt : `${picked.provider} ${picked.model}`} · 模板 #{picked.id}
+              </span>
+            ) : (
+              <span className="foot-hint">选择一个模板 · 载入后作为参考图回到画板</span>
+            )}
+          </div>
+          <div className="tpl-tools">
+            {slots.map((k) => (
+              <button key={k} className={`chip ${slot === k ? 'is-active' : ''}`} onClick={() => setSlot(k)} title={REF_META[k].hint}>
+                {REF_META[k].name}
+              </button>
+            ))}
+            {/* 删除规则：必须先选中一张模板，单击即删（无二次确认） */}
+            <button
+              className="tpl-del"
+              disabled={!picked}
+              title={picked ? `删除模板 #${picked.id}` : '先选中一张模板再删除'}
+              onClick={() => picked && onDelete(picked)}
+            >
+              <Icon name="trash" size={14} />
+              删除
+            </button>
+            <button className="primary gallery-apply" disabled={!picked} onClick={() => picked && onLoad(picked, slot)}>
+              <Icon name="check" size={15} />
+              载入画板
+            </button>
+          </div>
+        </footer>
+      </div>
     </div>
   )
 }
@@ -2723,173 +2610,6 @@ function RefGallery({
     </div>
   )
 }
-
-// data URI 内存缓存：LRU 上限，防止翻遍三个图库后常驻内存无界增长
-// （一张缩略图 data URI 约 15~30KB，700 张 ≈ 20MB 封顶，盖住最大图库全套分类）
-const THUMB_MEM_MAX = 700
-const thumbMem = new Map<string, string>()
-
-function cacheThumb(url: string, uri: string) {
-  if (thumbMem.size >= THUMB_MEM_MAX) {
-    const oldest = thumbMem.keys().next().value
-    if (oldest !== undefined) thumbMem.delete(oldest)
-  }
-  thumbMem.set(url, uri)
-}
-
-// resolve a remote asset to a local copy stored in the SQLite gallery DB
-// (remote has no CORS headers, so the webview cannot fetch it directly)
-async function cachedSrc(url: string, kind: string): Promise<string> {
-  const hit = thumbMem.get(url)
-  if (hit) {
-    // 触碰一次，保持 LRU 顺序
-    thumbMem.delete(url)
-    thumbMem.set(url, hit)
-    return hit
-  }
-  const uri = await invoke<string>('image_data_uri', { url, kind })
-  cacheThumb(url, uri)
-  return uri
-}
-
-// 参考图小条用本地缓存显示：优先缩略图（图库里点过就已在内存），
-// 没有映射再退回全图本身。慢网下不再卡在远程地址上。
-function RefThumb({ url, kind }: { url: string | null; kind: RefKey }) {
-  const [src, setSrc] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    setSrc('')
-    if (!url) return
-    if (url.startsWith('data:')) {
-      setSrc(url)
-      return
-    }
-    cachedSrc(FULL_TO_THUMB.get(url) ?? url, kind)
-      .then((s) => {
-        if (!cancelled) setSrc(s)
-      })
-      .catch(() => {
-        if (!cancelled) setSrc(url)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [url, kind])
-  return src ? <img src={src} alt={REF_META[kind].name} /> : null
-}
-
-// 历史条缩略图：按条目 id 取 96px 小图（服务端已生成好，几 KB 一张），
-// 读取失败就留空底色，不阻塞整条。
-function HistoryThumb({ id }: { id: number }) {
-  const [src, setSrc] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    invoke<string>('history_thumb', { id })
-      .then((s) => {
-        if (!cancelled) setSrc(s)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [id])
-  return src ? <img src={src} alt="" draggable={false} /> : <span className="history-thumb-wait" />
-}
-
-// 大图预览走本地库：全图多半已被画板/点选预热，直接命中缓存
-function PreviewImg({ url }: { url: string }) {
-  const [src, setSrc] = useState(url.startsWith('data:') ? url : '')
-  useEffect(() => {
-    if (url.startsWith('data:')) return
-    let cancelled = false
-    cachedSrc(url, 'ref')
-      .then((s) => {
-        if (!cancelled) setSrc(s)
-      })
-      .catch(() => {
-        if (!cancelled) setSrc(url)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [url])
-  if (!src) return <span className="thumb-loading" aria-label="加载中" />
-  return <img src={src} alt="" />
-}
-
-function GalleryImageImpl({
-  view,
-  origin,
-  alt,
-  kind
-}: {
-  view: GalleryView
-  origin: string
-  alt: string
-  kind: RefKey
-}) {
-  const remote = assetUrl(origin, view.thumb)
-  const [src, setSrc] = useState('')
-  const [failed, setFailed] = useState(false)
-  const holderRef = useRef<HTMLSpanElement | null>(null)
-
-  useEffect(() => {
-    setSrc('')
-    setFailed(false)
-    let cancelled = false
-    const el = holderRef.current
-    if (!el || !remote) return
-    // lazy: only hit the cache/network once the card is near the viewport
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          io.disconnect()
-          cachedSrc(remote, kind)
-            .then((s) => {
-              if (!cancelled) setSrc(s)
-            })
-            .catch(() => {
-              if (!cancelled) setSrc(remote)
-            })
-        }
-      },
-      { rootMargin: '1000px' }
-    )
-    io.observe(el)
-    return () => {
-      cancelled = true
-      io.disconnect()
-    }
-  }, [remote, kind])
-
-  if (failed) {
-    return (
-      <span className="pose-fallback">
-        <Icon name="image" size={18} />
-      </span>
-    )
-  }
-  return (
-    <span className="pose-thumb-media" ref={holderRef}>
-      {src ? (
-        <img
-          src={src}
-          alt={alt}
-          loading="lazy"
-          decoding="async"
-          onError={() => {
-            if (src !== remote) setSrc(remote)
-            else setFailed(true)
-          }}
-        />
-      ) : null}
-    </span>
-  )
-}
-
-// memo：点选卡片只让被点中的那张重绘，其余上千张直接跳过调和。
-// props（view/origin/alt/kind）都来自 catalog 的稳定引用，memo 有效。
-const GalleryImage = memo(GalleryImageImpl)
 
 const container = document.getElementById('root')
 if (!container) throw new Error('#root container missing')

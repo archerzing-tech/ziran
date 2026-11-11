@@ -1,0 +1,642 @@
+<title>Ziran 安卓四方向设计稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* ============================================================
+   设计评审板：浅灰制图纸底，四台深色手机样机是唯一的重色。
+   令牌：纸面/墨色/弱化/界线 + 每台手机各自的方向色只作用于机内。
+   ============================================================ */
+:root {
+  --paper: #ECEEEC;
+  --panel: #F7F8F6;
+  --ink: #1C2226;
+  --muted: #61707B;
+  --line: #D7DBD8;
+  --line-strong: #B9C0BC;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --display: "Sora", -apple-system, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+  --sans: -apple-system, "PingFang SC", "HarmonyOS Sans SC", "HarmonyOS Sans", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+}
+html, body { margin: 0; }
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.65;
+  padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+::selection { background: #1C2226; color: #ECEEEC; }
+.wrap { max-width: 1180px; margin: 0 auto; }
+
+/* ---------- 页眉 ---------- */
+.kicker {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .14em;
+  color: var(--muted); margin: 0 0 10px;
+}
+h1 {
+  font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4.6vw, 44px);
+  line-height: 1.15; letter-spacing: -0.015em; margin: 0 0 14px; text-wrap: balance;
+}
+.lede { max-width: 62ch; color: var(--ink); margin: 0 0 8px; }
+.lede b { font-weight: 600; }
+.invariants {
+  font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+  border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line);
+  padding: 10px 0; margin: 22px 0 0; display: flex; flex-wrap: wrap; gap: 6px 18px;
+}
+.invariants span { white-space: nowrap; }
+.invariants i { font-style: normal; color: var(--ink); }
+
+/* 一览矩阵 */
+.matrix-scroll { overflow-x: auto; margin-top: 26px; }
+table.matrix { border-collapse: collapse; font-size: 13.5px; min-width: 640px; }
+.matrix th {
+  font-family: var(--mono); font-weight: 500; font-size: 11.5px; letter-spacing: .1em;
+  color: var(--muted); text-align: left; padding: 8px 14px 8px 0; border-bottom: 1px solid var(--line-strong);
+}
+.matrix td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.matrix td:first-child { font-weight: 600; white-space: nowrap; }
+.matrix .num { font-family: var(--mono); font-size: 12.5px; }
+
+/* ---------- 概念区 ---------- */
+.concept {
+  display: grid; grid-template-columns: 430px minmax(0, 1fr);
+  gap: 26px 56px; align-items: start;
+  border-top: 1px solid var(--line-strong); padding-top: 40px; margin-top: 56px;
+}
+@media (max-width: 960px) { .concept { grid-template-columns: minmax(0, 1fr); } }
+
+.c-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.c-tag {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .16em; color: var(--muted);
+}
+.c-name {
+  font-family: var(--display); font-weight: 700; font-size: clamp(21px, 2.6vw, 27px);
+  letter-spacing: -0.01em; margin: 0;
+}
+.c-metaphor { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.c-lede { margin: 16px 0 0; max-width: 60ch; }
+.notes { list-style: none; margin: 18px 0 0; padding: 0; }
+.notes li { display: flex; gap: 10px; padding: 7px 0; font-size: 14px; }
+.notes .n { font-family: var(--mono); font-size: 12.5px; color: var(--muted); flex: none; padding-top: 2px; }
+.verdict { margin-top: 20px; border-top: 1px dashed var(--line-strong); }
+.verdict div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+.verdict dt { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-top: 2px; }
+.verdict dd { margin: 0; }
+.spec {
+  font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: .06em;
+  margin: 14px 0 0; text-align: center;
+}
+@media (min-width: 961px) { .stage { order: -1; } }
+
+/* ---------- 手机样机 ---------- */
+.stage { position: relative; }
+.phone {
+  width: min(344px, 100%); margin: 0 auto; border-radius: 40px; padding: 11px;
+  background: #08090a;
+  box-shadow: 0 1px 2px rgba(28,34,38,.28), 0 18px 44px -18px rgba(28,34,38,.45), inset 0 0 0 1.5px #3a3f42;
+}
+.screen { position: relative; height: 668px; border-radius: 30px; overflow: hidden; margin: 0 auto; width: 322px; max-width: 100%; }
+.punch {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  width: 13px; height: 13px; border-radius: 50%; background: #060708;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.05); z-index: 5;
+}
+.sbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 40px; z-index: 4;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 22px 0; font-family: var(--mono); font-size: 12px; color: rgba(255,255,255,.85);
+  pointer-events: none;
+}
+.sicons { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: .05em; }
+.batt { width: 18px; height: 9px; border-radius: 2.5px; border: 1px solid rgba(255,255,255,.7); position: relative; }
+.batt::before { content: ""; position: absolute; inset: 1.5px; right: 5px; background: rgba(255,255,255,.85); border-radius: 1px; }
+.batt::after { content: ""; position: absolute; right: -3.5px; top: 2px; width: 2px; height: 4px; background: rgba(255,255,255,.7); border-radius: 0 1px 1px 0; }
+.gbar {
+  position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%);
+  width: 108px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.35); z-index: 4;
+}
+.dot {
+  position: absolute; z-index: 6; width: 19px; height: 19px; border-radius: 50%;
+  background: #F2F4F1; color: #16191c; font-family: var(--mono); font-size: 11px; font-weight: 500;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.45);
+}
+
+/* 成片占位：剪影 + 各自的渐变底 */
+.ph {
+  background-repeat: no-repeat;
+  background-size: 62% auto, cover;
+  background-position: center 74%, center;
+}
+.ph-warm  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(165deg, #C99B6C 0%, #8A6A54 44%, #4E4245 100%); }
+.ph-cool  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(160deg, #9FB4B8 0%, #64808B 48%, #35464F 100%); }
+.ph-dusk  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(170deg, #B0A2B6 0%, #77647E 46%, #3D3346 100%); }
+.ph-moss  { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(155deg, #A8B39A 0%, #6E7C63 50%, #3B443A 100%); }
+.ph-studio{ background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 125'%3E%3Cg fill='%23fff' opacity='.4'%3E%3Ccircle cx='50' cy='42' r='17'/%3E%3Cpath d='M50 62c-17 0-28 10-30 26l-2 37h64l-2-37c-2-16-13-26-30-26z'/%3E%3C/g%3E%3C/svg%3E"), linear-gradient(160deg, #D8D2CA 0%, #A29A94 52%, #6E6862 100%); }
+
+/* ---------- A · 快门台 ---------- */
+.sA { background: #131316; color: #EDEDEA; }
+.a-top { position: absolute; top: 44px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: center; }
+.a-model {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px;
+  border-radius: 999px; background: rgba(255,255,255,.07); font-size: 12px; color: rgba(255,255,255,.88);
+}
+.a-model i { font-style: normal; font-size: 9px; opacity: .6; }
+.a-hist { position: relative; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: center; }
+.a-hist b {
+  position: absolute; top: -3px; right: -4px; min-width: 15px; height: 15px; padding: 0 4px;
+  border-radius: 999px; background: #FFB454; color: #201503; font-size: 9.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.a-view {
+  position: absolute; top: 86px; left: 14px; right: 14px; height: 252px;
+  border-radius: 18px; overflow: hidden; background: #0d0d10;
+}
+.a-view .ph { position: absolute; inset: 0; }
+.a-bracket { position: absolute; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.85); z-index: 2; }
+.a-bracket.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; border-radius: 4px 0 0 0; }
+.a-bracket.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; border-radius: 0 4px 0 0; }
+.a-bracket.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; border-radius: 0 0 0 4px; }
+.a-bracket.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; border-radius: 0 0 4px 0; }
+.a-ratio {
+  position: absolute; left: 10px; bottom: 10px; z-index: 3; height: 24px; padding: 0 9px;
+  display: inline-flex; align-items: center; border-radius: 7px;
+  background: rgba(12,12,14,.62); font-family: var(--mono); font-size: 11px; color: #fff;
+  backdrop-filter: blur(3px);
+}
+.a-mark {
+  position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center; border-radius: 8px;
+  background: rgba(12,12,14,.62); color: #FFB454;
+}
+.a-slots { position: absolute; top: 356px; left: 14px; right: 14px; display: flex; justify-content: space-between; }
+.a-slot { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 72px; background: none; border: 0; padding: 0; color: inherit; font: inherit; }
+.a-orb {
+  width: 58px; height: 58px; border-radius: 50%; position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.a-orb.filled { border: 2px solid #FFB454; padding: 2px; }
+.a-orb.filled .ph { position: absolute; inset: 2px; border-radius: 50%; }
+.a-orb.empty { border: 1.6px dashed rgba(255,255,255,.3); color: rgba(255,255,255,.5); }
+.a-slot i { font-style: normal; font-size: 10.5px; color: rgba(255,255,255,.62); }
+.a-slot.filled i { color: #FFC97E; }
+.a-prompt {
+  position: absolute; top: 500px; left: 14px; right: 14px; height: 40px;
+  border-radius: 12px; background: rgba(255,255,255,.06);
+  display: flex; align-items: center; padding: 0 12px; gap: 8px;
+  font-size: 12px; color: rgba(255,255,255,.45);
+}
+.a-dock { position: absolute; left: 0; right: 0; bottom: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
+.a-side { width: 46px; height: 46px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 8.5px; color: rgba(255,255,255,.7); }
+.a-shutter { width: 70px; height: 70px; border-radius: 50%; border: 0; background: none; padding: 4px; position: relative; }
+.a-shutter::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 3px solid #FFB454; }
+.a-shutter i {
+  position: absolute; inset: 7px; border-radius: 50%; background: #FFB454;
+  box-shadow: 0 0 18px rgba(255,180,84,.5);
+}
+.a-flash { position: absolute; inset: 0; background: rgba(255,224,178,.28); z-index: 3; border-radius: 30px; }
+
+/* ---------- B · 出图对话 ---------- */
+.sB { background: #101613; color: #E9EFEA; }
+.b-head { position: absolute; top: 44px; left: 16px; right: 16px; }
+.b-title-row { display: flex; justify-content: space-between; align-items: center; }
+.b-title { font-family: var(--display); font-weight: 600; font-size: 16.5px; letter-spacing: .01em; }
+.b-set { width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,.07); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.75); }
+.b-model {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; height: 22px; padding: 0 9px;
+  border-radius: 6px; background: rgba(60,203,127,.13); color: #7FDFAC; font-size: 10.5px;
+}
+.b-model::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #3CCB7F; }
+.b-thread { position: absolute; top: 122px; left: 0; right: 0; bottom: 74px; overflow: hidden; padding: 0 14px; }
+.b-time { text-align: center; font-size: 10px; color: rgba(255,255,255,.35); margin: 2px 0 12px; }
+.b-msg { max-width: 82%; margin-bottom: 12px; }
+.b-msg.out { margin-left: auto; }
+.b-msg.in { margin-right: auto; }
+.b-out {
+  background: #24382D; border-radius: 15px 15px 4px 15px; padding: 9px 12px; font-size: 12.5px; line-height: 1.5;
+}
+.b-chips { display: flex; gap: 5px; margin-top: 7px; }
+.b-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 21px; padding: 0 8px;
+  border-radius: 6px; background: rgba(60,203,127,.16); color: #8FE3B8; font-size: 10px;
+}
+.b-chip .th { width: 13px; height: 13px; border-radius: 3px; }
+.b-in-img { border-radius: 15px 15px 15px 4px; overflow: hidden; position: relative; }
+.b-in-img .ph { height: 196px; }
+.b-meta { display: flex; gap: 8px; font-family: var(--mono); font-size: 9.5px; color: rgba(255,255,255,.4); margin-top: 6px; padding-left: 2px; }
+.b-acts { display: flex; gap: 6px; margin-top: 7px; }
+.b-act {
+  height: 26px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px;
+  border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04);
+  font-size: 10.5px; color: rgba(255,255,255,.8);
+}
+.b-act.star { border-color: rgba(60,203,127,.4); color: #7FDFAC; }
+.b-gen {
+  display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.05);
+  border-radius: 15px 15px 15px 4px; padding: 10px 13px; font-size: 12px; color: rgba(255,255,255,.75);
+}
+.b-ring {
+  width: 26px; height: 26px; border-radius: 50%; flex: none;
+  background: conic-gradient(#3CCB7F 0 42%, rgba(255,255,255,.12) 42% 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+.b-ring i { width: 18px; height: 18px; border-radius: 50%; background: #18231D; }
+.b-compose {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 74px;
+  background: #141B17; border-top: 1px solid rgba(255,255,255,.07);
+  display: flex; align-items: center; gap: 9px; padding: 0 12px;
+}
+.b-add {
+  width: 38px; height: 38px; border-radius: 50%; background: rgba(60,203,127,.15);
+  display: flex; align-items: center; justify-content: center; color: #6FDCA4; flex: none;
+}
+.b-field {
+  flex: 1; height: 38px; border-radius: 19px; background: rgba(255,255,255,.07);
+  display: flex; align-items: center; padding: 0 13px; font-size: 12px; color: rgba(255,255,255,.4);
+}
+.b-send {
+  width: 38px; height: 38px; border-radius: 50%; background: #3CCB7F; flex: none;
+  display: flex; align-items: center; justify-content: center; color: #06130B;
+}
+
+/* ---------- C · 手势工作台 ---------- */
+.sC { background: #0B0E10; color: #E4EAEC; }
+.c-canvas .ph { position: absolute; inset: 0; }
+.c-veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(6,8,10,.5), rgba(6,8,10,0) 26%, rgba(6,8,10,0) 62%, rgba(6,8,10,.4)); }
+.c-chip {
+  position: absolute; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px;
+  border-radius: 8px; background: rgba(10,13,15,.6); font-size: 11px; color: rgba(255,255,255,.85);
+  backdrop-filter: blur(3px);
+}
+.c-chip.model { top: 48px; left: 12px; }
+.c-chip.ratio { top: 48px; right: 12px; font-family: var(--mono); font-size: 11px; }
+.c-undo { position: absolute; top: 84px; right: 12px; display: flex; gap: 6px; }
+.c-undo span { width: 28px; height: 28px; border-radius: 8px; background: rgba(10,13,15,.6); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.7); }
+.c-ghost {
+  position: absolute; width: 46px; height: 46px; border-radius: 10px; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font-size: 8.5px; letter-spacing: .05em;
+}
+.c-ghost.filled { border: 1.5px solid #45D6CE; color: #9FE9E4; background: rgba(8,12,13,.55); box-shadow: 0 0 14px rgba(69,214,206,.25); }
+.c-ghost.empty { border: 1.4px dashed rgba(255,255,255,.4); color: rgba(255,255,255,.6); background: rgba(8,12,13,.4); }
+.c-ghost b { font-size: 13px; font-weight: 600; }
+.c-layers { position: absolute; left: 12px; bottom: 88px; display: flex; }
+.c-layer {
+  width: 58px; height: 78px; border-radius: 9px; border: 1px solid rgba(255,255,255,.22);
+  margin-right: -26px; position: relative; display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 4px; font-size: 8.5px; color: rgba(255,255,255,.85);
+  box-shadow: 0 4px 12px rgba(0,0,0,.5);
+}
+.c-layer i {
+  position: absolute; inset: 3px; border-radius: 6px 6px 14px 14px; display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,.5); font-style: normal; font-size: 13px;
+}
+.c-tool {
+  position: absolute; width: 44px; height: 44px; border-radius: 50%; z-index: 3;
+  background: rgba(14,18,20,.85); border: 1px solid rgba(255,255,255,.16);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font-size: 8px; color: rgba(255,255,255,.78); backdrop-filter: blur(3px);
+}
+.c-gen {
+  position: absolute; right: 16px; bottom: 16px; width: 68px; height: 68px; border-radius: 50%; z-index: 4;
+  background:
+    conic-gradient(#45D6CE 0 68%, rgba(255,255,255,.1) 68% 100%) ;
+  display: flex; align-items: center; justify-content: center;
+}
+.c-gen i {
+  position: absolute; inset: 5px; border-radius: 50%; background: #0C1113;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-style: normal; font-size: 9px; letter-spacing: .1em; color: #45D6CE;
+}
+.c-hint {
+  position: absolute; left: 50%; top: 148px; transform: translateX(-50%);
+  font-size: 10px; color: rgba(255,255,255,.55); background: rgba(8,10,12,.55);
+  padding: 4px 10px; border-radius: 999px; backdrop-filter: blur(2px);
+}
+
+/* ---------- D · 分步出片 ---------- */
+.sD { background: #10131F; color: #E8EAF4; }
+.d-track { position: absolute; top: 52px; left: 18px; right: 18px; display: flex; align-items: flex-start; }
+.d-step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; }
+.d-step::before {
+  content: ""; position: absolute; top: 10px; left: calc(-50% + 15px); right: calc(50% + 15px);
+  height: 1.6px; background: rgba(255,255,255,.14);
+}
+.d-step:first-child::before { display: none; }
+.d-node {
+  width: 21px; height: 21px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 10px; position: relative; z-index: 1;
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.55);
+}
+.d-step.done .d-node { background: rgba(124,140,248,.22); color: #AEB7FF; }
+.d-step.cur .d-node { background: #7C8CF8; color: #0D1020; font-weight: 600; }
+.d-step i { font-style: normal; font-size: 9.5px; color: rgba(255,255,255,.45); }
+.d-step.cur i { color: #C3CAFF; }
+.d-count {
+  position: absolute; top: 96px; left: 18px; right: 18px; display: flex; justify-content: space-between; align-items: baseline;
+}
+.d-count h5 { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; }
+.d-count span { font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,.4); }
+.d-card {
+  position: absolute; top: 132px; left: 18px; right: 18px; border-radius: 18px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); padding: 12px;
+}
+.d-photo { position: relative; height: 240px; border-radius: 12px; overflow: hidden; }
+.d-photo .ph { position: absolute; inset: 0; }
+.d-photo-tag {
+  position: absolute; top: 10px; left: 10px; height: 22px; padding: 0 9px; border-radius: 6px;
+  background: rgba(10,12,20,.6); display: inline-flex; align-items: center;
+  font-size: 10px; color: #C3CAFF; backdrop-filter: blur(2px);
+}
+.d-photo-swap {
+  position: absolute; right: 10px; bottom: 10px; height: 26px; padding: 0 10px; border-radius: 8px;
+  background: rgba(10,12,20,.62); display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; color: rgba(255,255,255,.85); backdrop-filter: blur(2px);
+}
+.d-seg { display: flex; margin-top: 11px; background: rgba(255,255,255,.06); border-radius: 9px; padding: 3px; }
+.d-seg span {
+  flex: 1; text-align: center; padding: 5px 0; border-radius: 7px;
+  font-size: 10.5px; color: rgba(255,255,255,.5);
+}
+.d-seg .on { background: #7C8CF8; color: #0E1122; font-weight: 600; }
+.d-hint { margin-top: 9px; font-size: 10.5px; color: rgba(255,255,255,.42); text-align: center; }
+.d-foot { position: absolute; left: 18px; right: 18px; bottom: 30px; display: flex; gap: 10px; }
+.d-back {
+  height: 46px; padding: 0 16px; border-radius: 13px; display: flex; align-items: center;
+  font-size: 12.5px; color: rgba(255,255,255,.6); background: rgba(255,255,255,.07); flex: none;
+}
+.d-next {
+  flex: 1; height: 46px; border-radius: 13px; background: #7C8CF8; color: #0D1020;
+  display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13.5px; font-weight: 600;
+}
+
+/* ---------- 页脚 ---------- */
+footer { margin-top: 72px; border-top: 1px solid var(--line-strong); padding-top: 26px; }
+footer h2 { font-family: var(--display); font-size: 19px; margin: 0 0 10px; }
+footer p { max-width: 68ch; color: var(--ink); margin: 0 0 8px; }
+footer .mono { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="kicker">ZIRAN · MOBILE REDESIGN · 设计评审稿</p>
+  <h1>安卓版四个方向，各自独立</h1>
+  <p class="lede">现有手机端推倒重来。桌面端的全部能力原样保留——<b>参考槽（参考图 / 姿势 / 服装 / 人脸）、画幅比例、描述、生成、历史、模板库</b>——变的只是组织方式。下面四个方向是四套互不相干的交互范式和视觉性格，各自完整，选一个（或指定混搭）再展开成全套流程稿。</p>
+  <div class="invariants">
+    <span>不变：<i>参考槽 ×4</i></span><span><i>画幅 5 档</i></span><span><i>描述（可空）</i></span><span><i>生成 → 存相册</i></span><span><i>历史</i></span><span><i>模板库</i></span><span><i>自定义中转站接入</i></span>
+  </div>
+  <div class="matrix-scroll">
+    <table class="matrix">
+      <thead><tr><th>方案</th><th>交互隐喻</th><th>学习成本</th><th>单手操作</th><th>信息密度</th><th>最适合</th></tr></thead>
+      <tbody>
+        <tr><td>A · 快门台</td><td>相机取景</td><td class="num">低</td><td>全程拇指区</td><td class="num">中</td><td>把出图当「拍照」的轻用户</td></tr>
+        <tr><td>B · 出图对话</td><td>聊天消息流</td><td class="num">极低</td><td>优</td><td class="num">中低</td><td>习惯 IM 的大多数人</td></tr>
+        <tr><td>C · 手势工作台</td><td>专业修图工具</td><td class="num">高</td><td>右手拇指弧</td><td class="num">高</td><td>高频重度创作者</td></tr>
+        <tr><td>D · 分步出片</td><td>引导式向导</td><td class="num">极低</td><td>良</td><td class="num">低</td><td>第一次接触的新用户</td></tr>
+      </tbody>
+    </table>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ A · 快门台 ============ -->
+<section class="concept" id="a">
+  <div class="copy">
+    <div class="c-head"><span class="c-tag">方案 A</span><h2 class="c-name">快门台</h2></div>
+    <p class="c-metaphor">隐喻：相机取景器。生成一张照片 ≈ 按一次快门。</p>
+    <p class="c-lede">画布就是取景框，占屏近半、永远在视线上方；四个参考槽收成一排圆扣；所有操作在拇指能到的下半屏完成。生成不是「点按钮提交表单」，而是「按下快门」——按住蓄力、松手出片，配合一次闪光过渡。</p>
+    <ul class="notes">
+      <li><span class="n">①</span><span>快门即生成：轻点生成一张，长按住不松手连拍多方案，松手停。</span></li>
+      <li><span class="n">②</span><span>点任一槽位从底部弹出选源面板：相册选图 / 模板库导入 / 清空。</span></li>
+      <li><span class="n">③</span><span>取景框上左右滑 = 翻这张的历史底片，右下角书签随手存模板。</span></li>
+      <li><span class="n">④</span><span>左下角画幅角标一点即切换 1:1 / 3:4 / 4:3 / 9:16 / 16:9。</span></li>
+    </ul>
+    <div class="verdict">
+      <div><dt>亮点</dt><dd>意图最直白：一眼看懂「摆好参考 → 按快门」。单手全程可达，仪式感强。</dd></div>
+      <div><dt>代价</dt><dd>相机隐喻会弱化「姿势 / 服装」这类非拍照直觉的槽位语义；四个槽位同排，第一次用时未必明白可叠加。</dd></div>
+      <div><dt>适合</dt><dd>核心诉求就是「快速出片」的轻用户；拍照 app 重度用户零学习。</dd></div>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="phone"><div class="screen sA">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="a-flash"></div>
+      <div class="a-top">
+        <span class="a-model">豆包 seedream · 中转站 <i>▾</i></span>
+        <span class="a-hist"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#EDEDEA" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.8v4.4l3 1.8"/></svg><b>7</b></span>
+      </div>
+      <div class="a-view">
+        <div class="ph ph-warm"></div>
+        <span class="a-bracket tl"></span><span class="a-bracket tr"></span><span class="a-bracket bl"></span><span class="a-bracket br"></span>
+        <span class="a-ratio">3:4</span>
+        <span class="a-mark"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6.5 4h11v16l-5.5-4-5.5 4z"/></svg></span>
+      </div>
+      <div class="a-slots">
+        <span class="a-slot filled"><span class="a-orb filled"><span class="ph ph-studio"></span></span><i>参考图</i></span>
+        <span class="a-slot filled"><span class="a-orb filled"><span class="ph ph-cool"></span></span><i>姿势</i></span>
+        <span class="a-slot filled"><span class="a-orb filled"><span class="ph ph-moss"></span></span><i>服装</i></span>
+        <span class="a-slot"><span class="a-orb empty"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c1.2-3.8 3.6-5.6 6.5-5.6s5.3 1.8 6.5 5.6"/></svg></span><i>人脸</i></span>
+      </div>
+      <div class="a-prompt"><span>描述（可不填，默认沿用参考）</span></div>
+      <div class="a-dock">
+        <span class="a-side"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 15l4.5-4.5 4 4L16 11l4 4"/></svg>模板</span>
+        <span class="a-shutter"><i></i></span>
+        <span class="a-side"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="6" width="16" height="14" rx="3"/><path d="M8.5 6l1.4-2h4.2l1.4 2"/><circle cx="12" cy="13" r="3.2"/></svg>相册</span>
+      </div>
+      <span class="dot" style="right:36px; bottom:112px;">1</span>
+      <span class="dot" style="left:104px; top:384px;">2</span>
+      <span class="dot" style="left:20px; top:96px;">3</span>
+      <span class="dot" style="left:24px; bottom:120px;">4</span>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="spec">360 × 744 · 单手纵向流程：槽 → 描述 → 快门</p>
+  </div>
+</section>
+
+<!-- ============ B · 出图对话 ============ -->
+<section class="concept" id="b">
+  <div class="copy">
+    <div class="c-head"><span class="c-tag">方案 B</span><h2 class="c-name">出图对话</h2></div>
+    <p class="c-metaphor">隐喻：聊天。每次生成 = 发一条消息，成片 = 收到的回复。</p>
+    <p class="c-lede">不需要「页面」概念：附件（参考槽）+ 一句话 = 发送 = 生成。结果永远和当时的输入成对出现，往上滑就是完整历史，不用单独的历史入口。改需求就是再发一条：「换 9:16 再来一张」。</p>
+    <ul class="notes">
+      <li><span class="n">①</span><span>参考槽作为附件芯片随消息发送，发送键即生成键。</span></li>
+      <li><span class="n">②</span><span>成片下的操作条：存相册 / 存模板 / 原条件再来一张。</span></li>
+      <li><span class="n">③</span><span>会话永不清空，上滑即历史；顶部长按任意成片可跳到当时的参数。</span></li>
+      <li><span class="n">④</span><span>[+] 面板收纳：四个参考槽、模板库、画幅快选。</span></li>
+    </ul>
+    <div class="verdict">
+      <div><dt>亮点</dt><dd>零学习成本，结果与条件天然成对存档；「改一句话重出」的迭代路径最顺。</dd></div>
+      <div><dt>代价</dt><dd>画幅、多槽对比这类精确控制在聊天隐喻里只能收进面板；竖屏宽度的成片偏小，细看要再点开。</dd></div>
+      <div><dt>适合</dt><dd>把 AI 出图当「提需求」而不是「做操作」的大多数人。</dd></div>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="phone"><div class="screen sB">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="b-head">
+        <div class="b-title-row">
+          <span class="b-title">出图对话</span>
+          <span class="b-set"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></svg></span>
+        </div>
+        <span class="b-model">豆包 seedream · 中转站</span>
+      </div>
+      <div class="b-thread">
+        <div class="b-time">今晚 21:07</div>
+        <div class="b-msg out">
+          <div class="b-out">汉服、湖边、逆光，参考这张的姿势和服装<div class="b-chips"><span class="b-chip"><span class="th ph ph-studio"></span>参考图</span><span class="b-chip"><span class="th ph ph-cool"></span>姿势</span><span class="b-chip"><span class="th ph ph-moss"></span>服装</span></div></div>
+        </div>
+        <div class="b-msg in">
+          <div class="b-in-img"><div class="ph ph-warm"></div></div>
+          <div class="b-meta"><span>豆包 seedream</span><span>1024×1024</span><span>6.2s</span></div>
+          <div class="b-acts">
+            <span class="b-act"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg>存相册</span>
+            <span class="b-act star"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6.5 4h11v16l-5.5-4-5.5 4z"/></svg>存模板</span>
+            <span class="b-act"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 9a8 8 0 0 1 14.5-1.5M19.5 15a8 8 0 0 1-14.5 1.5"/><path d="M19 3.5v4h-4M5 20.5v-4h4"/></svg>再来一张</span>
+          </div>
+        </div>
+        <div class="b-msg out"><div class="b-out">竖版 9:16，构图往上一点</div></div>
+        <div class="b-msg in"><div class="b-gen"><span class="b-ring"><i></i></span>生成中 · 42%</div></div>
+      </div>
+      <div class="b-compose">
+        <span class="b-add"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+        <span class="b-field">想出一张什么样的照片？</span>
+        <span class="b-send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg></span>
+      </div>
+      <span class="dot" style="right:52px; bottom:46px;">1</span>
+      <span class="dot" style="left:132px; top:352px;">2</span>
+      <span class="dot" style="right:20px; top:128px;">3</span>
+      <span class="dot" style="left:14px; bottom:36px;">4</span>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="spec">360 × 744 · 输入在最下，历史即会话流</p>
+  </div>
+</section>
+
+<!-- ============ C · 手势工作台 ============ -->
+<section class="concept" id="c">
+  <div class="copy">
+    <div class="c-head"><span class="c-tag">方案 C</span><h2 class="c-name">手势工作台</h2></div>
+    <p class="c-metaphor">隐喻：口袋里的修图台。画布全屏，工具围着拇指长。</p>
+    <p class="c-lede">没有 Tab、没有表单：画布铺满全屏，四角是参考槽的落位格；参考像图层卡一样从左下角拖到角上占槽。工具收在右下角一段拇指弧上，生成是长按蓄力的环。给愿意学一套手势、天天出片的人。</p>
+    <ul class="notes">
+      <li><span class="n">①</span><span>参考卡拖到画布角 = 占槽；拖走 = 移除。四角即四个槽位。</span></li>
+      <li><span class="n">②</span><span>长按画布唤出历史叠层，上下滑翻旧片，松手回落所选。</span></li>
+      <li><span class="n">③</span><span>右下拇指弧放高频工具：画幅 / 描述 / 模板 / 历史，生成环长按蓄力出片。</span></li>
+      <li><span class="n">④</span><span>双指捏合缩放看细节，单指拖移画布。</span></li>
+    </ul>
+    <div class="verdict">
+      <div><dt>亮点</dt><dd>信息密度和操作效率最高，空间记忆强（东西永远在同个位置）；缩放细看成片最方便。</dd></div>
+      <div><dt>代价</dt><dd>学习成本四案中最高，手势没有可见入口，必须配引导层；左手单手基本不可用。</dd></div>
+      <div><dt>适合</dt><dd>高频重度创作者——桌面端那批用户的移动延伸。</dd></div>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="phone"><div class="screen sC">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="c-canvas" style="position:absolute; inset:0;">
+        <div class="ph ph-studio"></div>
+      </div>
+      <div class="c-veil"></div>
+      <span class="c-chip model">豆包 · seedream</span>
+      <span class="c-chip ratio">3:4</span>
+      <div class="c-undo"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 5L3.5 9.5 8 14"/><path d="M3.5 9.5H14a6 6 0 0 1 0 12h-3"/></svg></span><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M16 5l4.5 4.5L16 14"/><path d="M20.5 9.5H10a6 6 0 0 0 0 12h3"/></svg></span></div>
+      <span class="c-hint">双指缩放 · 长按看历史</span>
+      <span class="c-ghost filled" style="top:128px; left:12px;"><b>图</b>参考图</span>
+      <span class="c-ghost filled" style="top:128px; right:12px;"><b>姿</b>姿势</span>
+      <span class="c-ghost filled" style="bottom:186px; left:12px;"><b>装</b>服装</span>
+      <span class="c-ghost empty" style="bottom:186px; right:12px;"><b>脸</b>人脸</span>
+      <div class="c-layers">
+        <span class="c-layer"><i class="ph ph-warm"></i>参考图</span>
+        <span class="c-layer"><i class="ph ph-cool"></i>姿势</span>
+        <span class="c-layer"><i class="ph ph-dusk"></i>服装</span>
+      </div>
+      <span class="c-tool" style="right:2px; bottom:99px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M4 10h16"/></svg>画幅</span>
+      <span class="c-tool" style="right:41px; bottom:103px;">Aa<br>描述</span>
+      <span class="c-tool" style="right:77px; bottom:86px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 14l4.5-4.5 4 4L16 10l4 4"/></svg>模板</span>
+      <span class="c-tool" style="right:99px; bottom:54px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.8v4.4l3 1.8"/></svg>历史</span>
+      <span class="c-gen"><i>长按<br>生成</i></span>
+      <span class="dot" style="left:66px; bottom:196px;">1</span>
+      <span class="dot" style="left:50%; top:190px;">2</span>
+      <span class="dot" style="right:148px; bottom:150px;">3</span>
+      <span class="dot" style="left:58%; top:288px;">4</span>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="spec">360 × 744 · 无 Tab：画布 + 拇指弧 + 图层卡</p>
+  </div>
+</section>
+
+<!-- ============ D · 分步出片 ============ -->
+<section class="concept" id="d">
+  <div class="copy">
+    <div class="c-head"><span class="c-tag">方案 D</span><h2 class="c-name">分步出片</h2></div>
+    <p class="c-metaphor">隐喻：订机票式的引导流程。一屏只做一个决定。</p>
+    <p class="c-lede">四个步骤铺开：选模型 → 摆参考 → 写描述 → 出片。每一步只有一件事和一颗大按钮，参考槽一次只看一个、占满整屏宽——图大、字大、不迷路。左右滑在步骤间往返，参数全程保留。</p>
+    <ul class="notes">
+      <li><span class="n">①</span><span>顶部四格步骤轨：做过打勾、当前高亮，点任意格直接跳回改。</span></li>
+      <li><span class="n">②</span><span>摆参考步：分段切换四个槽，每个槽一张大图 + 从模板库选 / 相册选 / 拍一张。</span></li>
+      <li><span class="n">③</span><span>描述步给三句风格快捷句，点了即填，也可留空直接下一步。</span></li>
+      <li><span class="n">④</span><span>出片步是全屏仪式：进度环 → 成片满屏 → 存相册 / 存模板 / 调整重出。</span></li>
+    </ul>
+    <div class="verdict">
+      <div><dt>亮点</dt><dd>不可能迷路，参考图看得最清楚；给第一次接触的人和朋友装机最稳。</dd></div>
+      <div><dt>代价</dt><dd>熟练之后每张图都要走四步，效率低；步骤间的往返滑动比单屏切换多。</dd></div>
+      <div><dt>适合</dt><dd>新用户和低频用户；也可作为其他方案的「首次引导模式」。</dd></div>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="phone"><div class="screen sD">
+      <span class="punch"></span>
+      <div class="sbar"><span>21:07</span><span class="sicons">5G <i class="batt"></i></span></div>
+      <div class="d-track">
+        <span class="d-step done"><span class="d-node">✓</span><i>选模型</i></span>
+        <span class="d-step cur"><span class="d-node">2</span><i>摆参考</i></span>
+        <span class="d-step"><span class="d-node">3</span><i>写描述</i></span>
+        <span class="d-step"><span class="d-node">4</span><i>出片</i></span>
+      </div>
+      <div class="d-count"><h5>摆参考 · 姿势</h5><span>槽位 2 / 4</span></div>
+      <div class="d-card">
+        <div class="d-photo">
+          <div class="ph ph-cool"></div>
+          <span class="d-photo-tag">姿势 · 已选</span>
+          <span class="d-photo-swap"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 3.5v4h-4"/></svg>换一张</span>
+        </div>
+        <div class="d-seg"><span>参考图</span><span class="on">姿势</span><span>服装</span><span>人脸</span></div>
+        <div class="d-hint">从模板库选一个，或拍一张 · 可留空跳过</div>
+      </div>
+      <div class="d-foot">
+        <span class="d-back">上一步</span>
+        <span class="d-next">下一步 · 写描述<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m0 0l-6-6m6 6l-6 6"/></svg></span>
+      </div>
+      <span class="dot" style="left:50%; top:64px;">1</span>
+      <span class="dot" style="left:30px; top:196px;">2</span>
+      <span class="dot" style="right:52px; bottom:42px;">3</span>
+      <span class="dot" style="right:20px; bottom:110px;">4</span>
+      <div class="gbar"></div>
+    </div></div>
+    <p class="spec">360 × 744 · 一屏一决定 · 左右滑换步骤</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <h2>看完之后</h2>
+  <p>选定一个方向（或指定混搭，比如 B 的对话流 + C 的拖拽占槽），我把那个方向展开成完整流程稿：首次启动与引导、空态、生成中与失败重试、历史、模板库、接入自定义中转站的设置页，逐屏过完再进实现。</p>
+  <p class="mono">四稿彼此独立，没有共享的中间方案；每一稿的取舍都写在各自的「代价」里。</p>
+</footer>
+
+</div>

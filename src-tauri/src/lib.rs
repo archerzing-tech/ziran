@@ -96,10 +96,35 @@ fn db_open(app: &tauri::AppHandle) -> Result<Connection, String> {
          model    TEXT NOT NULL DEFAULT '',
          file     TEXT NOT NULL,
          thumb    TEXT NOT NULL DEFAULT '',
+         size     INTEGER NOT NULL,
+         prompt   TEXT NOT NULL DEFAULT '',
+         ws       INTEGER NOT NULL DEFAULT 1
+       );
+       CREATE TABLE IF NOT EXISTS templates (
+         id       INTEGER PRIMARY KEY AUTOINCREMENT,
+         created  INTEGER NOT NULL,
+         provider TEXT NOT NULL DEFAULT '',
+         model    TEXT NOT NULL DEFAULT '',
+         prompt   TEXT NOT NULL DEFAULT '',
+         file     TEXT NOT NULL,
+         thumb    TEXT NOT NULL DEFAULT '',
          size     INTEGER NOT NULL
        );",
     )
     .map_err(|e| e.to_string())?;
+  // 旧库补列：history 早期没有 prompt 字段，「从历史图存为模板」要带上
+  // 当时的描述；补不上也不拦启动（列保持默认空串，功能降级为不带提示词）。
+  let has_prompt: Result<i64, _> = conn
+    .query_row("SELECT COUNT(*) FROM pragma_table_info('history') WHERE name = 'prompt'", [], |r| r.get(0));
+  if matches!(has_prompt, Ok(0)) {
+    let _ = conn.execute("ALTER TABLE history ADD COLUMN prompt TEXT NOT NULL DEFAULT ''", []);
+  }
+  // 旧库补列：工作区标记（哪个工作区生成的）。老记录归入工作区 1。
+  let has_ws: Result<i64, _> = conn
+    .query_row("SELECT COUNT(*) FROM pragma_table_info('history') WHERE name = 'ws'", [], |r| r.get(0));
+  if matches!(has_ws, Ok(0)) {
+    let _ = conn.execute("ALTER TABLE history ADD COLUMN ws INTEGER NOT NULL DEFAULT 1", []);
+  }
   Ok(conn)
 }
 
@@ -480,7 +505,11 @@ struct HistoryEntry {
   created: i64,
   provider: String,
   model: String,
+  #[serde(default)]
+  prompt: String,
   size: i64,
+  #[serde(default)]
+  ws: i64,
 }
 
 fn history_ext(mime: &str) -> Result<&'static str, String> {
@@ -508,28 +537,75 @@ fn clip_meta(s: &str) -> String {
   s.trim().chars().take(120).collect()
 }
 
-/// id → 文件名。thumb_only=true 时先取缩略图列，缺了退回原图。
-fn history_file_of(app: &tauri::AppHandle, id: i64, thumb_only: bool) -> Result<String, String> {
+/// 解析 `data:image/<type>;base64,…` 成 (原始字节, 扩展名)。
+/// 历史归档与「存为模板」共用同一套格式白名单，坏数据在这里统一报错。
+fn decode_image_data_url(data_url: &str) -> Result<(Vec<u8>, &'static str), String> {
+  let rest = data_url
+    .strip_prefix("data:image/")
+    .ok_or("not an image data url")?;
+  let (mime, b64) = rest
+    .split_once(";base64,")
+    .ok_or("data url has no base64 payload")?;
+  let ext = history_ext(mime)?;
+  let bytes = base64_decode(b64)?;
+  if bytes.is_empty() {
+    return Err("image payload is empty".into());
+  }
+  Ok((bytes, ext))
+}
+
+/// 把一张成图写进库目录（history/ 或 templates/）：原图 + 96px 缩略图。
+/// 返回 (文件名, 缩略图名, 字节数)；缩略图生成失败降级为空名（查看时
+/// 退回原图，只慢不坏）。
+fn write_vault_image(vault: &std::path::Path, data_url: &str) -> Result<(String, String, i64), String> {
+  let (bytes, ext) = decode_image_data_url(data_url)?;
+  fs::create_dir_all(vault).map_err(|e| format!("写入库目录失败：{e}"))?;
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default();
+  let name = format!("ziran-{}-{}.{ext}", now.as_secs(), now.subsec_nanos());
+  fs::write(vault.join(&name), &bytes).map_err(|e| format!("写入历史失败：{e}"))?;
+  let thumb_name = make_thumb(&bytes)
+    .map(|t| {
+      let tname = format!("{name}.thumb.jpg");
+      match fs::write(vault.join(&tname), &t) {
+        Ok(_) => tname,
+        Err(_) => String::new(),
+      }
+    })
+    .unwrap_or_default();
+  Ok((name, thumb_name, bytes.len() as i64))
+}
+
+/// 归档图（历史/模板）按 id 取文件名：两个库共用同一条 SQL，
+/// 只是表名与报错文案不同。thumb_only=true 时先取缩略图列，缺了退回原图。
+fn vault_file_of(
+  app: &tauri::AppHandle,
+  table: &str,
+  label: &str,
+  id: i64,
+  thumb_only: bool,
+) -> Result<String, String> {
   let conn = db_open(app)?;
   let sql = if thumb_only {
-    "SELECT CASE WHEN thumb = '' THEN file ELSE thumb END FROM history WHERE id = ?1"
+    format!("SELECT CASE WHEN thumb = '' THEN file ELSE thumb END FROM {table} WHERE id = ?1")
   } else {
-    "SELECT file FROM history WHERE id = ?1"
+    format!("SELECT file FROM {table} WHERE id = ?1")
   };
   let name: String = conn
-    .query_row(sql, [id], |r| r.get(0))
-    .map_err(|e| format!("历史记录 #{id} 不存在：{e}"))?;
+    .query_row(&sql, [id], |r| r.get(0))
+    .map_err(|e| format!("{label} #{id} 不存在：{e}"))?;
   Ok(name)
 }
 
-fn read_history_file(app: &tauri::AppHandle, name: &str) -> Result<(Vec<u8>, &'static str), String> {
+fn read_vault_file(app: &tauri::AppHandle, vault: &str, name: &str) -> Result<(Vec<u8>, &'static str), String> {
   // 文件名由本程序生成（ziran-<secs>-<nanos>.<ext> / .thumb.jpg），
   // 只接受纯文件名，防止 path traversal。
   if name.contains('/') || name.contains('\\') || name.contains("..") {
     return Err("bad history file name".into());
   }
   let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-  let bytes = fs::read(dir.join("history").join(name)).map_err(|e| format!("读取历史文件失败：{e}"))?;
+  let bytes = fs::read(dir.join(vault).join(name)).map_err(|e| format!("读取历史文件失败：{e}"))?;
   let mime = match name.rsplit('.').next() {
     Some("png") => "image/png",
     Some("webp") => "image/webp",
@@ -575,46 +651,29 @@ fn history_add(
   data_url: String,
   provider: String,
   model: String,
+  prompt: Option<String>,
+  ws: Option<i64>,
 ) -> Result<HistoryEntry, String> {
-  let rest = data_url
-    .strip_prefix("data:image/")
-    .ok_or("not an image data url")?;
-  let (mime, b64) = rest
-    .split_once(";base64,")
-    .ok_or("data url has no base64 payload")?;
-  let ext = history_ext(mime)?;
-  let bytes = base64_decode(b64)?;
-  if bytes.is_empty() {
-    return Err("image payload is empty".into());
-  }
   let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
   let hdir = dir.join("history");
-  fs::create_dir_all(&hdir).map_err(|e| e.to_string())?;
+  let (name, thumb_name, size) = write_vault_image(&hdir, &data_url)?;
   let now = SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .unwrap_or_default();
-  let name = format!("ziran-{}-{}.{ext}", now.as_secs(), now.subsec_nanos());
-  fs::write(hdir.join(&name), &bytes).map_err(|e| format!("写入历史失败：{e}"))?;
-  let thumb_name = make_thumb(&bytes)
-    .map(|t| {
-      let tname = format!("{name}.thumb.jpg");
-      match fs::write(hdir.join(&tname), &t) {
-        Ok(_) => tname,
-        Err(_) => String::new(),
-      }
-    })
-    .unwrap_or_default();
   let conn = db_open(&app)?;
+  let ws = ws.unwrap_or(1);
   conn
     .execute(
-      "INSERT INTO history (created, provider, model, file, thumb, size) VALUES (?1,?2,?3,?4,?5,?6)",
+      "INSERT INTO history (created, provider, model, prompt, file, thumb, size, ws) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
       rusqlite::params![
         now.as_secs() as i64,
         clip_meta(&provider),
         clip_meta(&model),
+        clip_meta(prompt.as_deref().unwrap_or("")),
         name,
         thumb_name,
-        bytes.len() as i64
+        size,
+        ws
       ],
     )
     .map_err(|e| e.to_string())?;
@@ -625,7 +684,9 @@ fn history_add(
     created: now.as_secs() as i64,
     provider: clip_meta(&provider),
     model: clip_meta(&model),
-    size: bytes.len() as i64,
+    prompt: clip_meta(prompt.as_deref().unwrap_or("")),
+    size,
+    ws,
   })
 }
 
@@ -633,7 +694,7 @@ fn history_add(
 fn history_list(app: tauri::AppHandle) -> Result<Vec<HistoryEntry>, String> {
   let conn = db_open(&app)?;
   let mut stmt = conn
-    .prepare("SELECT id, created, provider, model, size FROM history ORDER BY id DESC LIMIT ?1")
+    .prepare("SELECT id, created, provider, model, prompt, size, ws FROM history ORDER BY id DESC LIMIT ?1")
     .map_err(|e| e.to_string())?;
   let rows = stmt
     .query_map([HISTORY_KEEP], |r| {
@@ -642,7 +703,9 @@ fn history_list(app: tauri::AppHandle) -> Result<Vec<HistoryEntry>, String> {
         created: r.get(1)?,
         provider: r.get(2)?,
         model: r.get(3)?,
-        size: r.get(4)?,
+        prompt: r.get(4)?,
+        size: r.get(5)?,
+        ws: r.get(6)?,
       })
     })
     .map_err(|e| e.to_string())?;
@@ -652,15 +715,15 @@ fn history_list(app: tauri::AppHandle) -> Result<Vec<HistoryEntry>, String> {
 
 #[tauri::command]
 fn history_image(app: tauri::AppHandle, id: i64) -> Result<String, String> {
-  let name = history_file_of(&app, id, false)?;
-  let (bytes, mime) = read_history_file(&app, &name)?;
+  let name = vault_file_of(&app, "history", "历史记录", id, false)?;
+  let (bytes, mime) = read_vault_file(&app, "history", &name)?;
   Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
 }
 
 #[tauri::command]
 fn history_thumb(app: tauri::AppHandle, id: i64) -> Result<String, String> {
-  let name = history_file_of(&app, id, true)?;
-  let (bytes, mime) = read_history_file(&app, &name)?;
+  let name = vault_file_of(&app, "history", "历史记录", id, true)?;
+  let (bytes, mime) = read_vault_file(&app, "history", &name)?;
   Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
 }
 
@@ -686,6 +749,119 @@ fn history_delete(app: tauri::AppHandle, id: i64) -> Result<(), String> {
   }
   conn
     .execute("DELETE FROM history WHERE id = ?1", [id])
+    .map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+/// 生成模板：用户把满意的成图「存为模板」，之后可以基于这张图再出图。
+/// 与生成历史同一套存法（历史 templates/ 目录 + SQLite 元数据），差异是
+/// 模板是用户显式收藏的，不自动裁剪；每条额外带生成时的提示词，
+/// 载入参考槽位时一并回填。
+#[derive(Serialize)]
+struct TemplateEntry {
+  id: i64,
+  created: i64,
+  provider: String,
+  model: String,
+  prompt: String,
+  size: i64,
+}
+
+#[tauri::command]
+fn template_add(
+  app: tauri::AppHandle,
+  data_url: String,
+  provider: String,
+  model: String,
+  prompt: String,
+) -> Result<TemplateEntry, String> {
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  let (name, thumb_name, size) = write_vault_image(&dir.join("templates"), &data_url)?;
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default();
+  let conn = db_open(&app)?;
+  conn
+    .execute(
+      "INSERT INTO templates (created, provider, model, prompt, file, thumb, size) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+      rusqlite::params![
+        now.as_secs() as i64,
+        clip_meta(&provider),
+        clip_meta(&model),
+        clip_meta(&prompt),
+        name,
+        thumb_name,
+        size
+      ],
+    )
+    .map_err(|e| e.to_string())?;
+  Ok(TemplateEntry {
+    id: conn.last_insert_rowid(),
+    created: now.as_secs() as i64,
+    provider: clip_meta(&provider),
+    model: clip_meta(&model),
+    prompt: clip_meta(&prompt),
+    size,
+  })
+}
+
+#[tauri::command]
+fn template_list(app: tauri::AppHandle) -> Result<Vec<TemplateEntry>, String> {
+  let conn = db_open(&app)?;
+  let mut stmt = conn
+    .prepare("SELECT id, created, provider, model, prompt, size FROM templates ORDER BY id DESC")
+    .map_err(|e| e.to_string())?;
+  let rows = stmt
+    .query_map([], |r| {
+      Ok(TemplateEntry {
+        id: r.get(0)?,
+        created: r.get(1)?,
+        provider: r.get(2)?,
+        model: r.get(3)?,
+        prompt: r.get(4)?,
+        size: r.get(5)?,
+      })
+    })
+    .map_err(|e| e.to_string())?;
+  Ok(rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+fn template_image(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+  let name = vault_file_of(&app, "templates", "模板", id, false)?;
+  let (bytes, mime) = read_vault_file(&app, "templates", &name)?;
+  Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
+}
+
+#[tauri::command]
+fn template_thumb(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+  let name = vault_file_of(&app, "templates", "模板", id, true)?;
+  let (bytes, mime) = read_vault_file(&app, "templates", &name)?;
+  Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
+}
+
+#[tauri::command]
+fn template_delete(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+  let conn = db_open(&app)?;
+  let rows: Vec<(String, String)> = conn
+    .prepare("SELECT file, thumb FROM templates WHERE id = ?1")
+    .and_then(|mut s| {
+      s.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    })
+    .map_err(|e| e.to_string())?;
+  if rows.is_empty() {
+    return Err(format!("模板 #{id} 不存在"));
+  }
+  let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+  for (file, thumb) in rows {
+    for name in [file, thumb] {
+      if !name.is_empty() {
+        let _ = fs::remove_file(dir.join("templates").join(&name));
+      }
+    }
+  }
+  conn
+    .execute("DELETE FROM templates WHERE id = ?1", [id])
     .map_err(|e| e.to_string())?;
   Ok(())
 }
@@ -716,6 +892,10 @@ struct ProviderRequest {
   form_fields: Vec<(String, String)>,
   #[serde(default)]
   form_files: Vec<ProviderFilePart>,
+  /// 手机端「取消」用：带上取消句柄 id 的请求可被 provider_fetch_cancel 中断。
+  /// 缺省（桌面端/旧桩）完全不受影响。
+  #[serde(default)]
+  cancel_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -723,6 +903,15 @@ struct ProviderResponse {
   status: u16,
   text: String,
 }
+
+/// 生成请求的取消句柄表：前端给每条要可取消的请求带 cancel_id，
+/// 取消时按 id 取走信号端发送；还在等的请求经 select 立刻返回。
+/// 已结束请求的句柄在 select 出口摘除，不泄漏。
+#[derive(Default)]
+struct FetchCancel(Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>);
+
+/// 取消标记：请求被用户取消时返回它，前端据此显示「已取消」而不是报错。
+const CANCELLED_MARKER: &str = "__cancelled__";
 
 fn build_multipart(
   fields: &[(String, String)],
@@ -780,11 +969,14 @@ fn send_and_read(req: ureq::Request, body: Vec<u8>) -> Result<ProviderResponse, 
 }
 
 #[tauri::command]
-async fn provider_fetch(request: ProviderRequest) -> Result<ProviderResponse, String> {
+async fn provider_fetch(
+  request: ProviderRequest,
+  cancels: State<'_, Arc<FetchCancel>>,
+) -> Result<ProviderResponse, String> {
   if !request.url.starts_with("https://") {
     return Err("only https urls are allowed".into());
   }
-  tauri::async_runtime::spawn_blocking(move || {
+  let work = tauri::async_runtime::spawn_blocking(move || {
     let has_multipart = !request.form_fields.is_empty() || !request.form_files.is_empty();
     let mut req = agent().post(&request.url);
     if has_multipart {
@@ -800,9 +992,52 @@ async fn provider_fetch(request: ProviderRequest) -> Result<ProviderResponse, St
       }
       send_and_read(req, request.json_body.unwrap_or_default().into_bytes())
     }
-  })
-  .await
-  .map_err(|e| e.to_string())?
+  });
+  match request.cancel_id {
+    // 可取消请求：登记句柄后在「请求完成」与「收到取消信号」之间择先。
+    // 取消后底层 HTTP 线程会自己跑完（ureq 阻塞读没有中断点），但结果被丢弃。
+    Some(id) => {
+      let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+      cancels.0.lock().unwrap().insert(id.clone(), tx);
+      let out = tokio::select! {
+        res = work => res.map_err(|e| e.to_string()).and_then(|inner| inner),
+        _ = rx => Err(CANCELLED_MARKER.into()),
+      };
+      cancels.0.lock().unwrap().remove(&id);
+      out
+    }
+    None => work.await.map_err(|e| e.to_string())?,
+  }
+}
+
+/// 手机端「取消」：按 id 触发取消信号。桌面端不带 cancel_id，不受影响。
+#[tauri::command]
+fn provider_fetch_cancel(cancels: State<'_, Arc<FetchCancel>>, id: String) {
+  if let Some(tx) = cancels.0.lock().unwrap().remove(&id) {
+    let _ = tx.send(());
+  }
+}
+
+/// 手机端「存相册」：把成图写进用户在系统「创建文档」（SAF）里选的位置——
+/// 选 Pictures 目录就能进相册。桌面端继续用 save_result_image 落盘。
+#[tauri::command]
+fn save_image_saf(app: tauri::AppHandle, uri: String, data_url: String) -> Result<(), String> {
+  use std::io::Write;
+  use tauri_plugin_fs::FsExt;
+  let b64 = data_url.split(',').nth(1).ok_or("bad data url")?;
+  let bytes = base64_decode(b64)?;
+  let url: tauri_plugin_fs::FilePath = uri
+    .parse()
+    .map_err(|e| format!("bad content uri: {e}"))?;
+  let mut opts = tauri_plugin_fs::OpenOptions::new();
+  opts.write(true);
+  let mut file = app
+    .fs()
+    .open(url, opts)
+    .map_err(|e| format!("打开保存位置失败：{e}"))?;
+  file.write_all(&bytes).map_err(|e| format!("写入失败：{e}"))?;
+  file.flush().map_err(|e| format!("写入失败：{e}"))?;
+  Ok(())
 }
 
 /// 在系统文件管理器里打开配置目录
@@ -868,6 +1103,8 @@ fn open_url(url: String) -> Result<(), String> {
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    // fs：手机端存相册用——open() 对 content:// URI 走 openOutputStream
+    .plugin(tauri_plugin_fs::init())
     .setup(|app| {
       // the old file-based cache is superseded by the SQLite store
       let _ = fs::remove_dir_all(app.path().app_cache_dir()?.join("gallery"));
@@ -879,6 +1116,7 @@ pub fn run() {
         )?;
       }
       app.manage(Arc::new(PrefetchState::default()));
+      app.manage(Arc::new(FetchCancel::default()));
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -898,8 +1136,15 @@ pub fn run() {
       history_image,
       history_thumb,
       history_delete,
+      template_add,
+      template_list,
+      template_image,
+      template_thumb,
+      template_delete,
       save_result_image,
-      provider_fetch
+      provider_fetch,
+      provider_fetch_cancel,
+      save_image_saf
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
@@ -1094,6 +1339,31 @@ mod tests {
     let thumb = make_thumb(&png).expect("real png should thumb");
     assert!(thumb.len() > 0 && thumb.len() < png.len());
     assert!(make_thumb(b"not-an-image").is_none());
+  }
+
+  /// 历史归档与「存为模板」共用的落盘：data url 解码出字节与扩展名，
+  /// 原图 + 缩略图都写入；坏 data url 要报错而不是落半截文件。
+  #[test]
+  fn vault_write_decodes_and_creates_thumb() {
+    let img = image::DynamicImage::new_rgb8(120, 90);
+    let mut png = Vec::new();
+    img
+      .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+      .unwrap();
+    let data_url = format!("data:image/png;base64,{}", base64_encode(&png));
+    let dir = std::env::temp_dir().join(format!("ziran-vault-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let (file, thumb, size) = write_vault_image(&dir, &data_url).unwrap();
+    assert_eq!(size, png.len() as i64);
+    assert!(file.ends_with(".png") && !file.contains('/'));
+    assert!(dir.join(&file).exists());
+    assert!(thumb.ends_with(".thumb.jpg"));
+    assert!(dir.join(&thumb).exists());
+    // 非 image 前缀 / 没有 base64 载荷 / 空载荷 → 拒绝
+    assert!(decode_image_data_url("data:text/plain;base64,AA").is_err());
+    assert!(decode_image_data_url("data:image/png;nope").is_err());
+    assert!(decode_image_data_url("data:image/png;base64,").is_err());
+    let _ = fs::remove_dir_all(&dir);
   }
 
   /// 真实网络对比：一次性连接 vs 连接池 + 闸门并发。

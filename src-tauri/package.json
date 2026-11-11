@@ -3,6 +3,7 @@
   "version": "0.0.2",
   "private": true,
   "scripts": {
+    "tauri": "tauri",
     "dev": "vite web --port 43123 --strictPort",
     "build": "vite build web",
     "preview": "vite preview web"

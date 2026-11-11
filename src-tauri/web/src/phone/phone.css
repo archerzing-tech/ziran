@@ -1,0 +1,1430 @@
+/* =========================== 手机端 · 快门台（html[data-app='phone']） ===========================
+   设计稿 design/shutter-deck-flows.html：取景框是家，快门是唯一的主行动。
+   深色单一外观（设计定稿「机内只此一套视觉」），琥珀只给「可按下 / 进行中」。
+   Android 10+ / 鸿蒙 4.x 兼容：不用 :has / dvh 独值 / 容器查询；
+   dvh 带 vh 兜底；backdrop-filter 只作增强，底下有实色。 */
+
+html[data-app='phone'] .titlebar,
+html[data-app='phone'] .workspace,
+html[data-app='phone'] .statusbar {
+  display: none !important;
+}
+
+html[data-app='phone'],
+html[data-app='phone'] body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html[data-app='phone'] .shell {
+  display: block;
+  height: 100vh;
+  height: 100dvh;
+}
+
+html[data-app='phone'] button,
+html[data-app='phone'] [role='button'] {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html[data-app='phone'] input,
+html[data-app='phone'] textarea,
+html[data-app='phone'] select {
+  font-size: 16px; /* 阻止 WebView 聚焦时自动放大页面 */
+}
+
+/* ---------------- 快门台配色令牌（只作用于手机端） ---------------- */
+html[data-app='phone'] {
+  --k-bg: #131316;
+  --k-panel: rgba(255, 255, 255, 0.06);
+  --k-panel-2: rgba(255, 255, 255, 0.09);
+  --k-line: rgba(255, 255, 255, 0.12);
+  --k-text: #edede9;
+  --k-dim: rgba(255, 255, 255, 0.55);
+  --k-faint: rgba(255, 255, 255, 0.38);
+  --k-amber: #ffb454;
+  --k-amber-soft: #ffc97e;
+  --k-on-amber: #241703;
+  --k-danger: #e5484d;
+  --k-sheet: #1b1b20;
+}
+
+/* ---------------- 外壳 ---------------- */
+html[data-app='phone'] .k-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--k-bg);
+  color: var(--k-text);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* 按钮重置：包进 :where() 降为零权重，组件单类规则（.k-*）都能盖过它 */
+:where(html[data-app='phone'] .k-app) button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ---------------- 顶栏 ---------------- */
+.k-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 8px;
+}
+
+.k-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 78%;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--k-panel);
+  color: var(--k-text);
+}
+
+.k-model-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--k-faint);
+}
+
+.k-model-dot.on {
+  background: #3ccb7f;
+}
+
+.k-model-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.k-gear {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--k-panel);
+  color: var(--k-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------------- 取景框 ---------------- */
+.k-vf {
+  flex: 1 1 auto;
+  min-height: 220px;
+  margin: 4px 14px 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: #0d0d10;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.k-vf-media {
+  position: relative;
+  width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
+  background: #0d0d10;
+  overflow: hidden;
+}
+
+/* 比例由 TSX 里 aspect-ratio 内联给出；媒体内容铺满该比例盒 */
+/* 老 WebView（无 aspect-ratio）：固定高度兜底，取景框不塌陷 */
+@supports not (aspect-ratio: 1 / 1) {
+  .k-vf-media {
+    height: 430px;
+  }
+}
+.k-vf-img,
+.k-vf-hist,
+.k-vf-hist img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.k-vf-hist img {
+  object-fit: contain;
+}
+
+.k-vf-hist {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-vf-hist .history-thumb-wait {
+  width: 22px;
+  height: 22px;
+}
+
+/* 四角取景括号 */
+.k-br {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.k-br-tl {
+  top: 9px;
+  left: 9px;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 4px 0 0 0;
+}
+
+.k-br-tr {
+  top: 9px;
+  right: 9px;
+  border-left: 0;
+  border-bottom: 0;
+  border-radius: 0 4px 0 0;
+}
+
+.k-br-bl {
+  bottom: 9px;
+  left: 9px;
+  border-right: 0;
+  border-top: 0;
+  border-radius: 0 0 0 4px;
+}
+
+.k-br-br {
+  bottom: 9px;
+  right: 9px;
+  border-left: 0;
+  border-top: 0;
+  border-radius: 0 0 4px 0;
+}
+
+/* AI 角标 / 取消：同一位置，状态互换 */
+.k-vf-ai,
+.k-vf-cancel {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 4;
+  height: 23px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 7px;
+  background: rgba(12, 12, 14, 0.66);
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.k-vf-ai {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  pointer-events: none;
+}
+
+.k-vf-ai b {
+  color: var(--k-amber);
+  font-weight: 500;
+}
+
+.k-vf-cancel {
+  border: 0;
+}
+
+/* 底片计数（翻页时） */
+.k-vf-count {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 4;
+  height: 23px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  background: rgba(12, 12, 14, 0.66);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--k-amber-soft);
+}
+
+/* 画幅角标 */
+.k-vf-ratio {
+  position: absolute;
+  left: 9px;
+  bottom: 9px;
+  z-index: 4;
+  height: 25px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  background: rgba(12, 12, 14, 0.66);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--k-text);
+}
+
+/* 存模板书签 */
+.k-vf-mark {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  z-index: 4;
+  width: 27px;
+  height: 27px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(12, 12, 14, 0.66);
+  color: var(--k-amber);
+}
+
+/* 画幅展开：盖在取景框内，换档即时生效 */
+.k-vf-ratios {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  align-content: flex-end;
+  gap: 8px;
+  padding: 14px;
+  background: rgba(8, 8, 10, 0.72);
+}
+
+.k-vf-ratios button {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--k-line);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  color: var(--k-text);
+}
+
+.k-vf-ratios button.is-on {
+  background: var(--k-amber);
+  border-color: var(--k-amber);
+  color: var(--k-on-amber);
+  font-weight: 600;
+}
+
+/* 生成中 */
+.k-vf-gen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.k-vf-gen b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.k-gen-sub {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--k-dim);
+}
+
+.k-vf-gen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0.03) 30%,
+    rgba(255, 180, 84, 0.1) 50%,
+    rgba(255, 255, 255, 0.03) 70%
+  );
+  background-size: 220% 100%;
+  animation: k-shimmer 1.7s linear infinite;
+}
+
+@keyframes k-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-app='phone'] .k-vf-gen::before {
+    animation: none;
+  }
+}
+
+/* 空态 */
+.k-vf-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+  padding: 0 24px;
+  color: var(--k-dim);
+}
+
+.k-vf-empty b {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.k-vf-empty span {
+  font-size: 11px;
+  color: var(--k-faint);
+  line-height: 1.6;
+}
+
+.k-vf-btn {
+  margin-top: 8px;
+  height: 34px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--k-amber);
+  color: var(--k-on-amber);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* 出片闪光 + 操作条 */
+.k-vf-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: 18px;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 3px rgba(255, 180, 84, 0.6), inset 0 0 34px rgba(255, 180, 84, 0.25);
+}
+
+.k-vf-acts {
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 9px;
+  z-index: 6;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.k-vf-acts button {
+  height: 31px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 9px;
+  background: rgba(12, 12, 14, 0.78);
+  font-size: 11px;
+  color: var(--k-text);
+}
+
+.k-vf-acts button.is-hot {
+  background: rgba(255, 180, 84, 0.94);
+  color: var(--k-on-amber);
+  font-weight: 600;
+}
+
+/* 首启一次性提示 */
+.k-tip {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  height: 27px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 180, 84, 0.16);
+  border: 1px solid rgba(255, 180, 84, 0.4);
+  color: var(--k-amber-soft);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+/* ---------------- 槽位排 ---------------- */
+.k-slots {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 26px 0;
+}
+
+.k-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+  min-width: 60px;
+}
+
+.k-orb {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1.6px dashed rgba(255, 255, 255, 0.3);
+  color: var(--k-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.k-orb.is-filled {
+  border: 2px solid var(--k-amber);
+  background: #0d0d10;
+}
+
+.k-orb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.k-slot i,
+.k-dock-side i,
+.k-shuttercol i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--k-dim);
+}
+
+.k-slot-lead {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 15px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--k-amber);
+  color: var(--k-on-amber);
+  font-size: 8.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+/* ---------------- 配方条 + 描述 ---------------- */
+.k-combo {
+  flex: none;
+  margin: 8px 16px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--k-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.k-combo b {
+  color: var(--k-amber-soft);
+  font-weight: 500;
+}
+
+.k-combo span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.k-prompt {
+  flex: none;
+  margin: 8px 14px 0;
+  border-radius: 12px;
+  background: var(--k-panel);
+}
+
+.k-prompt textarea {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  resize: none;
+  color: var(--k-text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  padding: 9px 12px;
+  height: 40px;
+  max-height: 64px;
+}
+
+.k-prompt textarea::placeholder {
+  color: var(--k-faint);
+}
+
+.k-prompt textarea:focus {
+  outline: none;
+}
+
+/* ---------------- 底部坞 ---------------- */
+.k-dock {
+  flex: none;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 44px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.k-dock.is-dim {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.k-dock-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: var(--k-dim);
+}
+
+.k-dock-side:disabled {
+  color: var(--k-faint);
+}
+
+.k-dock-thumb {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  overflow: visible;
+  border: 1px solid var(--k-line);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-dock-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.k-dock-thumb-empty {
+  color: var(--k-faint);
+}
+
+.k-dock-cnt {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--k-amber);
+  color: var(--k-on-amber);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-shuttercol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.k-shuttercol i {
+  letter-spacing: 0.06em;
+}
+
+.k-shutter {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+}
+
+.k-shutter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--k-amber);
+}
+
+.k-shutter i {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--k-amber);
+  box-shadow: 0 0 18px rgba(255, 180, 84, 0.45);
+}
+
+.k-shutter:active i {
+  transform: scale(0.92);
+}
+
+/* 生成中：外环转圈（单请求无真实百分比，不假装进度） */
+.k-shutter.is-busy::before {
+  border-color: rgba(255, 255, 255, 0.14);
+  border-top-color: var(--k-amber);
+  animation: k-spin 0.9s linear infinite;
+}
+
+.k-shutter.is-busy i {
+  box-shadow: none;
+  background: rgba(255, 180, 84, 0.25);
+}
+
+@keyframes k-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-app='phone'] .k-shutter.is-busy::before {
+    animation: none;
+  }
+}
+
+.k-spin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-top-color: var(--k-amber);
+  animation: k-spin 0.9s linear infinite;
+  display: inline-block;
+}
+
+.k-spin-lg {
+  width: 44px;
+  height: 44px;
+  border-width: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-app='phone'] .k-spin,
+  html[data-app='phone'] .k-spin-lg {
+    animation: none;
+    border-top-color: var(--k-amber);
+    border-right-color: rgba(255, 180, 84, 0.4);
+  }
+}
+
+/* ---------------- 轻提示 ---------------- */
+.k-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  max-width: min(86vw, 420px);
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(24, 24, 28, 0.94);
+  border: 1px solid var(--k-line);
+  color: var(--k-text);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.k-toast[data-tone='ok'] {
+  border-color: rgba(60, 203, 127, 0.5);
+}
+
+.k-toast[data-tone='err'] {
+  border-color: rgba(229, 72, 77, 0.6);
+}
+
+.k-toast[data-tone='busy'] {
+  border-color: rgba(255, 180, 84, 0.55);
+}
+
+/* ---------------- 底部面板通用（抽屉） ---------------- */
+.k-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(6, 6, 8, 0.55);
+  display: flex;
+  align-items: flex-end;
+}
+
+.k-sheet {
+  width: 100%;
+  max-height: 72vh;
+  overflow-y: auto;
+  background: var(--k-sheet);
+  border-radius: 22px 22px 0 0;
+  padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.k-grab {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  margin: 0 auto 12px;
+}
+
+.k-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.k-sheet-head h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.k-sheet-head h4 span {
+  display: block;
+  font-size: 10px;
+  color: var(--k-faint);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.k-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--k-panel);
+  color: var(--k-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-sheet-cur {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1.5px solid var(--k-amber);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-sheet-cur img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.k-sheet-cur.is-empty {
+  border-style: dashed;
+  border-color: var(--k-line);
+  color: var(--k-faint);
+}
+
+.k-clear {
+  flex: none;
+  height: 30px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(229, 72, 77, 0.5);
+  color: #ff9296;
+  font-size: 11px;
+}
+
+/* 选源九宫（2×2 大磁贴） */
+.k-src-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.k-src {
+  border-radius: 13px;
+  background: var(--k-panel);
+  border: 1px solid var(--k-line);
+  padding: 13px 13px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  color: var(--k-text);
+}
+
+.k-src:disabled {
+  opacity: 0.45;
+}
+
+.k-src b {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.k-src b svg {
+  color: var(--k-amber);
+}
+
+.k-src span {
+  font-size: 10.5px;
+  color: var(--k-faint);
+}
+
+/* 模型抽屉列表 */
+.k-prov-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.k-prov {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: var(--k-panel);
+  border: 1px solid var(--k-line);
+  text-align: left;
+  color: var(--k-text);
+}
+
+.k-prov.is-active {
+  border-color: rgba(255, 180, 84, 0.55);
+  background: rgba(255, 180, 84, 0.07);
+}
+
+.k-prov.is-manage {
+  justify-content: center;
+  gap: 7px;
+  color: var(--k-dim);
+  border-style: dashed;
+}
+
+.k-prov-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.k-prov-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.k-prov-sub {
+  font-size: 10px;
+  color: var(--k-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k-prov-model {
+  flex: none;
+  max-width: 38%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  color: var(--k-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k-prov-key {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--k-faint);
+}
+
+.k-prov-key.on {
+  background: #3ccb7f;
+}
+
+/* ---------------- 整屏面板（模板库 / 底片 / 设置） ---------------- */
+.k-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--k-bg);
+  display: flex;
+  flex-direction: column;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.k-panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 10px;
+}
+
+.k-panel-head h4 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.k-panel-head h4 span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--k-faint);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.k-panel-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--k-dim);
+  padding: 0 30px;
+  text-align: center;
+}
+
+.k-panel-empty b {
+  font-size: 14px;
+  color: var(--k-text);
+}
+
+.k-panel-empty p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--k-faint);
+}
+
+/* 模板库网格：卡内不放文字（与桌面端偏好一致） */
+.k-tgrid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  padding: 4px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  align-content: start;
+}
+
+.k-tcell {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--k-line);
+  aspect-ratio: 3 / 4;
+  background: #0d0d10;
+}
+
+/* 老 WebView 兜底：同上 */
+@supports not (aspect-ratio: 1 / 1) {
+  .k-tcell {
+    height: 168px;
+  }
+}
+
+.k-tcell img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.k-tcell.is-pick {
+  border: 1.5px solid var(--k-amber);
+  box-shadow: 0 0 12px rgba(255, 180, 84, 0.3);
+}
+
+.k-tbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  height: 52px;
+  padding: 0 10px;
+  border-radius: 14px;
+  background: rgba(20, 20, 24, 0.95);
+  border: 1px solid var(--k-line);
+}
+
+.k-tbar b {
+  font-size: 11px;
+  color: var(--k-faint);
+  font-weight: 500;
+  margin-right: 2px;
+  flex: none;
+}
+
+.k-tbar button {
+  flex: none;
+  height: 32px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  background: var(--k-panel-2);
+  font-size: 11px;
+  color: var(--k-text);
+}
+
+.k-tbar button.is-hot {
+  background: var(--k-amber);
+  color: var(--k-on-amber);
+  font-weight: 600;
+}
+
+.k-tbar .is-go {
+  margin-left: auto;
+}
+
+.k-tbar-x {
+  background: var(--k-panel) !important;
+  color: var(--k-dim) !important;
+  width: 30px;
+  padding: 0 !important;
+  justify-content: center;
+}
+
+/* 底片网格 */
+.k-hgroups {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+}
+
+.k-hg-label {
+  margin: 12px 0 7px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--k-faint);
+}
+
+.k-hrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.k-hcell {
+  position: relative;
+  height: 118px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--k-line);
+  background: #0d0d10;
+}
+
+.k-hcell img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.k-hcell-t {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: rgba(10, 10, 12, 0.66);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  color: rgba(255, 255, 255, 0.85);
+  display: inline-flex;
+  align-items: center;
+}
+
+.k-pick-hint {
+  flex: none;
+  margin: 0;
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  font-size: 12px;
+  color: var(--k-amber-soft);
+  background: rgba(255, 180, 84, 0.08);
+}
+
+/* 设置 */
+.k-setbody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+}
+
+.k-s-label {
+  margin: 14px 0 7px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--k-faint);
+}
+
+.k-set-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--k-panel);
+  border: 1px solid var(--k-line);
+  margin-bottom: 8px;
+  text-align: left;
+  color: var(--k-text);
+}
+
+.k-row-ic {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--k-panel-2);
+  color: var(--k-amber-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.k-row-main b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.k-row-main small {
+  font-size: 10.5px;
+  color: var(--k-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k-about {
+  margin: 18px 2px 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--k-faint);
+}
+
+/* ---------------- 底片回看 ---------------- */
+.k-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #0b0b0e;
+  display: flex;
+  flex-direction: column;
+}
+
+.k-viewer-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 8px;
+}
+
+.k-viewer-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.k-viewer-meta b {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.k-viewer-meta span {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  color: var(--k-faint);
+}
+
+.k-iconbtn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--k-panel);
+  color: var(--k-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.k-iconbtn.is-danger {
+  color: #ff9296;
+}
+
+.k-iconbtn.is-arm {
+  background: rgba(229, 72, 77, 0.22);
+  color: #ff9296;
+}
+
+.k-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.k-viewer-stage .ph-stage {
+  flex: 1;
+}
+
+/* PinchImg（回看大图手势） */
+.ph-stage {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.ph-stage-img {
+  max-width: 100%;
+  max-height: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ph-stage-img.is-anim {
+  transition: transform 0.22s ease-out;
+}
+
+.ph-stage-img.is-zoomed {
+  cursor: grab;
+}
+
+.ph-stage.is-loaded .ph-stage-img {
+  opacity: 1;
+}
+
+/* ---------------- 桌面「模型配置」面板的手机适配（+08：手机上全屏可用） ---------------- */
+html[data-app='phone'] .overlay {
+  padding: 0;
+  backdrop-filter: none;
+}
+
+html[data-app='phone'] .model-panel {
+  width: 100%;
+  max-width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+  border: 0;
+}
+
+html[data-app='phone'] .panel-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ---------------- 窄屏微调（≤360px 的紧凑机型） ---------------- */
+@media (max-width: 360px) {
+  .k-slots {
+    padding: 10px 16px 0;
+  }
+
+  .k-orb {
+    width: 48px;
+    height: 48px;
+  }
+
+  .k-dock {
+    padding-left: 30px;
+    padding-right: 30px;
+  }
+}
