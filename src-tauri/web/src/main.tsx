@@ -914,6 +914,18 @@ function App() {
       }
 
       if (output.startsWith('http') || output.startsWith('data:')) {
+        // 远程出图先经本地缓存通道转 data URI 再上画板：直连 URL 在
+        // Windows WebView2 上不稳（带 Referer 校验/时效的图床拉不到，
+        // 实测「生成完成」但画板不显示，macOS/Android 正常）。统一转
+        // 本地后三端一致，历史/存模板也零开销；转不动（断网等）才把
+        // 原 URL 交给 <img> 直连兜底。
+        if (output.startsWith('http')) {
+          try {
+            output = await invoke<string>('image_data_uri', { url: output, kind: 'result' })
+          } catch {
+            // 保持原 URL
+          }
+        }
         deliverResult(genProject, output)
         setCensor(false)
         setStatus({ text: '生成完成', tone: 'ok' })
